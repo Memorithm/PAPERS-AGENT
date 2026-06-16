@@ -57,8 +57,8 @@ class EvolutionAnalyzer:
         stderr = str(results.get("stderr", ""))[:2000]
 
         prompt = ANALYZER_PROMPT.format(
-            motivation=motivation[:1500],
-            program_summary=program[:2000],
+            motivation=str(motivation)[:1500],
+            program_summary=str(program)[:2000],
             score=results.get("score", "N/A"),
             success=results.get("success", False),
             metrics=metrics_str[:1500],

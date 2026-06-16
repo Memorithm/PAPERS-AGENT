@@ -1,0 +1,6 @@
+max_rounds: 30
+sampling_policy: ucb1
+n_candidates_per_round: 5
+n_context_nodes: 5
+n_cognition: 5
+patience: 8
