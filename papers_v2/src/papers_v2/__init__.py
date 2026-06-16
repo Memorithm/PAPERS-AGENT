@@ -8,6 +8,13 @@ from papers_v2.evolution.researcher import Researcher
 from papers_v2.evolution.engineer import Engineer
 from papers_v2.evolution.analyzer import EvolutionAnalyzer
 from papers_v2.evolution.loop import EvolutionLoop
+from papers_v2.intelligence.frenzy import ResearchFrenzy
+from papers_v2.intelligence.pattern_induction import PatternInductionEngine
+from papers_v2.intelligence.falsification import FalsificationEngine
+from papers_v2.intelligence.verifier import CounterexampleGuidedVerifier
+from papers_v2.intelligence.symbolic_reasoning import SymbolicReasoningEngine
+from papers_v2.intelligence.probabilistic import ProbabilisticReasoner
+from papers_v2.intelligence.graph_mining import GraphPatternMiner
 from papers_v2.knowledge.papers_registry import PaperRegistry
 
 __all__ = [
@@ -16,17 +23,24 @@ __all__ = [
     "AnalysisReport",
     "CognitionBase",
     "CognitionEntry",
+    "CounterexampleGuidedVerifier",
     "Engineer",
     "EvolutionAnalyzer",
     "EvolutionDatabase",
     "EvolutionLoop",
     "EvolutionNode",
+    "FalsificationEngine",
+    "GraphPatternMiner",
     "load_config",
     "PaperRegistry",
     "PapersEngine",
+    "PatternInductionEngine",
+    "ProbabilisticReasoner",
     "Publication",
+    "ResearchFrenzy",
     "Researcher",
     "SamplingPolicy",
+    "SymbolicReasoningEngine",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

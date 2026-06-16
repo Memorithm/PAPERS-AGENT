@@ -491,6 +491,58 @@ def registry_show(
     console.print(f"\n[bold green]Key Insight:[/bold green]\n{paper.get('key_insight', 'N/A')}")
 
 
+# ── Research Frenzy ────────────────────────────────────────────────
+
+@app.command()
+def frenzy(
+    task: str = typer.Argument(..., help="Description de la tache a automatiser"),
+    model: str = typer.Option("gemma4:e2b", "--model", help="Modele Ollama"),
+    max_rounds: int = typer.Option(10, "--max-rounds", "-n", help="Nombre de rounds"),
+    candidates: int = typer.Option(3, "--candidates", "-k", help="Candidats par round"),
+    registry: str = typer.Option("./papers_registry.json", "--registry", help="Registre de papiers"),
+    cognition_path: str = typer.Option("./cognition_store", "--cognition", help="Store de cognition"),
+    db_path: str = typer.Option("./evolution_db.json", "--db", help="Base d'evolution"),
+    kg_path: str = typer.Option("./knowledge_graph.json", "--kg", help="Graphe de connaissances"),
+    output_dir: str = typer.Option("./frenzy_output", "--output-dir", "-o", help="Repertoire de sortie"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Desactiver le LLM"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Mode verbeux"),
+) -> None:
+    """Lance une frenesie de codage autonome: papers -> analyse -> implementation."""
+    from papers_v2.intelligence.frenzy import ResearchFrenzy
+
+    if verbose:
+        logger.enable("papers_v2")
+
+    frenzy = ResearchFrenzy(
+        task_description=task,
+        model=model,
+        max_rounds=max_rounds,
+        use_llm=not no_llm,
+        registry_path=registry,
+        cognition_path=cognition_path,
+        db_path=db_path,
+        kg_path=kg_path,
+        output_dir=output_dir,
+    )
+
+    console.print(f"[bold cyan]Research Frenzy: {task[:100]}[/bold cyan]")
+    console.print(f"  Model: {model} | Rounds: {max_rounds} | Candidates/round: {candidates}")
+
+    result = frenzy.run(
+        n_parallel_candidates=candidates,
+        verbose=verbose,
+    )
+
+    console.print(f"\n[bold green]Frenzy complete![/bold green]")
+    console.print(f"  Candidates: {result['total_candidates']}")
+    console.print(f"  Best score: {result['best_score']:.4f}")
+    console.print(f"  Time: {result['total_time']:.1f}s")
+    console.print(f"  Calibration: {result['calibration']['status']}")
+
+    if result.get("top_hypothesis"):
+        console.print(f"  Top hypothesis: {result['top_hypothesis']['description'][:100]}")
+
+
 def _display_summary(report: AnalysisReport) -> None:
     table = Table(title="Résumé d'analyse PAPERS V2")
     table.add_column("Métrique", style="cyan")
