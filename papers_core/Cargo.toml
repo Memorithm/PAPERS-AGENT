@@ -1,8 +1,8 @@
 [package]
 name = "papers_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "PAPERS V2 - Full Rust evolution engine (100% Rust)"
+description = "PAPERS V2 - Full Rust engine with scirust integration"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -13,13 +13,21 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
-ndarray = "0.16"
+ndarray = { version = "0.16", features = ["serde"] }
 ndarray-stats = "0.6"
 statrs = "0.17"
 petgraph = "0.6"
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
+
+# ── SciRust crates ──
+scirust-core = { path = "/tmp/scirust/scirust-core" }
+scirust-symbolic = { path = "/tmp/scirust/scirust-symbolic" }
+scirust-symreg = { path = "/tmp/scirust/scirust-symreg" }
+scirust-solvers = { path = "/tmp/scirust/scirust-solvers" }
+scirust-neuro-symbolic = { path = "/tmp/scirust/scirust-neuro-symbolic" }
+scirust-nas = { path = "/tmp/scirust/scirust-nas" }
 
 [lib]
 name = "papers_core"

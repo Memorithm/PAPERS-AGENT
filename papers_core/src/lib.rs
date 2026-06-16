@@ -9,6 +9,8 @@ pub mod falsification;
 pub mod verifier;
 pub mod probabilistic;
 pub mod graph;
+pub mod symbolic;
+pub mod nas;
 pub mod cli;
 pub mod config;
 
@@ -23,4 +25,6 @@ pub use falsification::*;
 pub use verifier::*;
 pub use probabilistic::*;
 pub use graph::*;
+pub use symbolic::*;
+pub use nas::*;
 pub use config::*;
