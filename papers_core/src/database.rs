@@ -2,12 +2,14 @@ use std::collections::HashMap;
 
 use crate::models::Node;
 use crate::samplers::{create_sampler, Sampler};
+use crate::vector_store::VectorStore;
 
 pub struct Database {
     nodes: HashMap<usize, Node>,
     next_id: usize,
     sampler_name: String,
     sampler: Box<dyn Sampler>,
+    vector_store: Option<VectorStore>,
 }
 
 impl std::fmt::Debug for Database {
@@ -27,15 +29,69 @@ impl Database {
             next_id: 0,
             sampler_name: sampler_name.to_string(),
             sampler: create_sampler(sampler_name),
+            vector_store: None,
         }
+    }
+
+    /// Crée une Database avec VectorStore activé pour la recherche sémantique.
+    ///
+    /// `corpus_texts` doit contenir les textes représentatifs du domaine
+    /// (titres de papiers, abstracts) pour initialiser le vocabulaire du MiniLLM.
+    pub fn new_with_vector_store(sampler_name: &str, corpus_texts: &[&str]) -> Self {
+        Self {
+            nodes: HashMap::new(),
+            next_id: 0,
+            sampler_name: sampler_name.to_string(),
+            sampler: create_sampler(sampler_name),
+            vector_store: Some(VectorStore::new(corpus_texts)),
+        }
+    }
+
+    /// Vrai si le VectorStore est activé.
+    pub fn has_vector_store(&self) -> bool {
+        self.vector_store.is_some()
     }
 
     pub fn add(&mut self, mut node: Node) -> usize {
         let id = self.next_id;
         self.next_id += 1;
         node.id = Some(id);
+
+        // Indexer automatiquement dans le VectorStore si activé
+        if let Some(ref mut vs) = self.vector_store {
+            vs.add(id, &node.context_text());
+        }
+
         self.nodes.insert(id, node);
         id
+    }
+
+    /// Recherche sémantique : retourne les `top_k` IDs les plus similaires à `query`.
+    ///
+    /// Retourne un vecteur vide si le VectorStore n'est pas activé.
+    pub fn search_similar(&mut self, query: &str, top_k: usize) -> Vec<(usize, f32)> {
+        match self.vector_store.as_mut() {
+            Some(vs) => vs.search(query, top_k),
+            None => Vec::new(),
+        }
+    }
+
+    /// Recherche sémantique avec seuil de similarité minimal.
+    pub fn search_similar_threshold(
+        &mut self,
+        query: &str,
+        top_k: usize,
+        threshold: f32,
+    ) -> Vec<(usize, f32)> {
+        match self.vector_store.as_mut() {
+            Some(vs) => vs.search_with_threshold(query, top_k, threshold),
+            None => Vec::new(),
+        }
+    }
+
+    /// Dimension des embeddings (0 si pas de VectorStore).
+    pub fn embedding_dim(&self) -> usize {
+        self.vector_store.as_ref().map(|vs| vs.dim()).unwrap_or(0)
     }
 
     pub fn get(&self, id: usize) -> Option<&Node> {
@@ -116,11 +172,14 @@ pub struct DatabaseStats {
 
 impl Clone for Database {
     fn clone(&self) -> Self {
+        // VectorStore n'est pas clonable (EmbeddingEngine non-Clone)
+        // Un clone perd la capacité de recherche sémantique.
         Self {
             nodes: self.nodes.clone(),
             next_id: self.next_id,
             sampler_name: self.sampler_name.clone(),
             sampler: create_sampler(&self.sampler_name),
+            vector_store: None,
         }
     }
 }
