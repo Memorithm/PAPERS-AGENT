@@ -8,6 +8,7 @@ from papers_v2.evolution.researcher import Researcher
 from papers_v2.evolution.engineer import Engineer
 from papers_v2.evolution.analyzer import EvolutionAnalyzer
 from papers_v2.evolution.loop import EvolutionLoop
+from papers_v2.knowledge.papers_registry import PaperRegistry
 
 __all__ = [
     "AgentConfig",
@@ -21,6 +22,7 @@ __all__ = [
     "EvolutionLoop",
     "EvolutionNode",
     "load_config",
+    "PaperRegistry",
     "PapersEngine",
     "Publication",
     "Researcher",

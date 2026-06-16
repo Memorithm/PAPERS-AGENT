@@ -529,3 +529,299 @@ class TestResearcher:
         for c in candidates:
             assert "motivation" in c
             assert "program" in c
+
+
+class TestPaperRegistry:
+    def test_load_registry(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Test Paper 1",
+                "authors": ["Author A"],
+                "year": 2026,
+                "source": "arXiv:test.001",
+                "url": "https://arxiv.org/abs/test.001",
+                "abstract": "Test abstract",
+                "tags": ["test", "pattern"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "Test insight",
+                "relevance_score": 0.9,
+            },
+            {
+                "id": "test-002",
+                "title": "Test Paper 2",
+                "authors": ["Author B"],
+                "year": 2025,
+                "source": "arXiv:test.002",
+                "url": "https://arxiv.org/abs/test.002",
+                "abstract": "Another abstract about patterns and deduction",
+                "tags": ["deduction", "reasoning"],
+                "domain": "COGNITIVE_ARCHITECTURES",
+                "key_insight": "Deduction insight",
+                "relevance_score": 0.85,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        assert len(reg.papers) == 2
+
+    def test_search(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Pattern Recognition Paper",
+                "authors": ["Author A"],
+                "year": 2026,
+                "source": "arXiv:test.001",
+                "url": "https://arxiv.org/abs/test.001",
+                "abstract": "About pattern recognition",
+                "tags": ["pattern", "recognition"],
+                "domain": "REPRESENTATION_ENGINEERING",
+                "key_insight": "Pattern insight",
+                "relevance_score": 0.9,
+            },
+            {
+                "id": "test-002",
+                "title": "Deduction Paper",
+                "authors": ["Author B"],
+                "year": 2025,
+                "source": "arXiv:test.002",
+                "url": "https://arxiv.org/abs/test.002",
+                "abstract": "About deduction methods",
+                "tags": ["deduction", "reasoning"],
+                "domain": "COGNITIVE_ARCHITECTURES",
+                "key_insight": "Deduction insight",
+                "relevance_score": 0.85,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        results = reg.search("pattern")
+        assert len(results) == 1
+        assert results[0]["id"] == "test-001"
+
+        results2 = reg.search("deduction")
+        assert len(results2) == 1
+        assert results2[0]["id"] == "test-002"
+
+    def test_filter_by_tag(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Paper 1",
+                "authors": ["A"],
+                "year": 2026,
+                "source": "src",
+                "url": "url",
+                "abstract": "abs",
+                "tags": ["pattern", "induction"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "insight",
+                "relevance_score": 0.5,
+            },
+            {
+                "id": "test-002",
+                "title": "Paper 2",
+                "authors": ["B"],
+                "year": 2026,
+                "source": "src2",
+                "url": "url2",
+                "abstract": "abs2",
+                "tags": ["deduction", "reasoning"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "insight2",
+                "relevance_score": 0.5,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        filtered = reg.filter_by_tag("pattern")
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "test-001"
+
+    def test_filter_by_domain(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Paper 1",
+                "authors": ["A"],
+                "year": 2026,
+                "source": "src",
+                "url": "url",
+                "abstract": "abs",
+                "tags": ["tag"],
+                "domain": "REPRESENTATION_ENGINEERING",
+                "key_insight": "insight",
+                "relevance_score": 0.5,
+            },
+            {
+                "id": "test-002",
+                "title": "Paper 2",
+                "authors": ["B"],
+                "year": 2026,
+                "source": "src2",
+                "url": "url2",
+                "abstract": "abs2",
+                "tags": ["tag"],
+                "domain": "COGNITIVE_ARCHITECTURES",
+                "key_insight": "insight2",
+                "relevance_score": 0.5,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        filtered = reg.filter_by_domain("REPRESENTATION_ENGINEERING")
+        assert len(filtered) == 1
+        assert filtered[0]["id"] == "test-001"
+
+    def test_stats(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Paper 1",
+                "authors": ["A"],
+                "year": 2026,
+                "source": "src",
+                "url": "url",
+                "abstract": "abs",
+                "tags": ["pattern"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "insight",
+                "relevance_score": 0.5,
+            },
+            {
+                "id": "test-002",
+                "title": "Paper 2",
+                "authors": ["B"],
+                "year": 2025,
+                "source": "src2",
+                "url": "url2",
+                "abstract": "abs2",
+                "tags": ["deduction", "reasoning"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "insight2",
+                "relevance_score": 0.5,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        stats = reg.stats()
+        assert stats["total_papers"] == 2
+        assert 2026 in stats["by_year"]
+        assert 2025 in stats["by_year"]
+        assert len(stats["by_domain"]) >= 1
+
+    def test_list_tags(self, tmp_path):
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        registry_path = tmp_path / "test_registry.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Paper 1",
+                "authors": ["A"],
+                "year": 2026,
+                "source": "src",
+                "url": "url",
+                "abstract": "abs",
+                "tags": ["pattern", "induction"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "insight",
+                "relevance_score": 0.5,
+            },
+        ]
+        import json
+        registry_path.write_text(json.dumps(papers))
+
+        reg = PaperRegistry(registry_path=str(registry_path))
+        tags = reg.list_tags()
+        assert "pattern" in tags
+        assert "induction" in tags
+
+    def test_domain_parse(self):
+        from papers_v2.core.models import Domain
+
+        assert Domain.parse("REPRESENTATION_ENGINEERING") == Domain.REPRESENTATION_ENGINEERING
+        assert Domain.parse("Representation Engineering") == Domain.REPRESENTATION_ENGINEERING
+        assert Domain.parse("representation_engineering") == Domain.REPRESENTATION_ENGINEERING
+        assert Domain.parse("LLM_ARCHITECTURES") == Domain.LLM_ARCHITECTURES
+        assert Domain.parse("UNKNOWN_DOMAIN") == Domain.KNOWLEDGE_REPRESENTATION
+
+    def test_import_to_cognition_base(self, tmp_path):
+        from papers_v2.evolution import CognitionBase
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        import json
+
+        registry_path = tmp_path / "reg.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Test Pattern Paper",
+                "authors": ["Author A"],
+                "year": 2026,
+                "source": "arXiv:test",
+                "url": "https://arxiv.org/abs/test",
+                "abstract": "Abstract about patterns",
+                "tags": ["pattern"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "Key pattern insight",
+                "relevance_score": 0.9,
+            },
+        ]
+        registry_path.write_text(json.dumps(papers))
+
+        cog_dir = tmp_path / "cog"
+        reg = PaperRegistry(registry_path=str(registry_path), cognition_path=str(cog_dir))
+
+        ct = CognitionBase(persist_dir=str(cog_dir))
+        n = reg.import_to_cognition_base(ct)
+        assert n == 1
+
+    def test_import_to_knowledge_graph(self, tmp_path):
+        from papers_v2.knowledge.graph import KnowledgeGraph
+        from papers_v2.knowledge.papers_registry import PaperRegistry
+        import json
+
+        registry_path = tmp_path / "reg.json"
+        papers = [
+            {
+                "id": "test-001",
+                "title": "Test Pattern Paper",
+                "authors": ["Author A"],
+                "year": 2026,
+                "source": "arXiv:test",
+                "url": "https://arxiv.org/abs/test",
+                "abstract": "Abstract about patterns",
+                "tags": ["pattern"],
+                "domain": "LLM_ARCHITECTURES",
+                "key_insight": "Key insight",
+                "relevance_score": 0.9,
+            },
+        ]
+        registry_path.write_text(json.dumps(papers))
+
+        kg_path = tmp_path / "kg.json"
+        reg = PaperRegistry(registry_path=str(registry_path), knowledge_graph_path=str(kg_path))
+
+        kg = KnowledgeGraph(path=str(kg_path))
+        n = reg.import_to_knowledge_graph(kg)
+        assert n == 1

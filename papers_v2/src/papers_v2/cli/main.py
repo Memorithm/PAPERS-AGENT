@@ -370,6 +370,127 @@ def evolution_status(
         console.print(table2)
 
 
+# ── Paper Registry Commands ───────────────────────────────────────
+
+@app.command()
+def registry_import(
+    registry: str = typer.Option("./papers_registry.json", "--registry", "-r", help="Fichier registre JSON"),
+    knowledge_graph: str = typer.Option("./knowledge_graph.json", "--kg", help="Chemin du graphe de connaissances"),
+    vector_store: str = typer.Option("./vector_store", "--vs", help="Chemin du store vectoriel"),
+    cognition_path: str = typer.Option("./cognition_store", "--cognition", help="Store de cognition"),
+    targets: str = typer.Option("all", "--targets", help="Cibles: all|cognition|kg|vs"),
+) -> None:
+    """Importe les papiers du registre dans CognitionBase, KnowledgeGraph et VectorStore."""
+    from papers_v2.evolution import CognitionBase
+    from papers_v2.knowledge.graph import KnowledgeGraph
+    from papers_v2.knowledge.papers_registry import PaperRegistry
+    from papers_v2.knowledge.vector_store import PaperVectorStore
+
+    reg = PaperRegistry(
+        registry_path=registry,
+        knowledge_graph_path=knowledge_graph,
+        vector_store_path=vector_store,
+        cognition_path=cognition_path,
+    )
+    console.print(f"[bold]Paper Registry: {len(reg.papers)} papers[/bold]")
+
+    if targets in ("all", "cognition"):
+        ct = CognitionBase(persist_dir=cognition_path)
+        n = reg.import_to_cognition_base(ct)
+        console.print(f"[green]CognitionBase: {n} entrees[/green]")
+
+    if targets in ("all", "kg"):
+        kg = KnowledgeGraph(path=knowledge_graph)
+        n = reg.import_to_knowledge_graph(kg)
+        console.print(f"[green]KnowledgeGraph: {n} noeuds papier[/green]")
+
+    if targets in ("all", "vs"):
+        vs = PaperVectorStore(persist_dir=vector_store)
+        n = reg.import_to_vector_store(vs)
+        console.print(f"[green]VectorStore: {n} documents[/green]")
+
+    console.print(f"[bold green]Import termine.[/bold green]")
+
+
+@app.command()
+def registry_list(
+    registry: str = typer.Option("./papers_registry.json", "--registry", "-r", help="Fichier registre JSON"),
+    tag: str = typer.Option("", "--tag", help="Filtrer par tag"),
+    domain: str = typer.Option("", "--domain", help="Filtrer par domaine"),
+    query: str = typer.Option("", "--query", "-q", help="Recherche textuelle"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Nombre de resultats"),
+) -> None:
+    """Liste les papiers du registre avec filtres."""
+    from papers_v2.knowledge.papers_registry import PaperRegistry
+
+    reg = PaperRegistry(registry_path=registry)
+
+    if tag:
+        papers = reg.filter_by_tag(tag)
+    elif domain:
+        papers = reg.filter_by_domain(domain)
+    elif query:
+        papers = reg.search(query)
+    else:
+        papers = reg.papers
+
+    reg.display_table(papers, title=f"Paper Registry ({len(papers)} papers)", limit=limit)
+
+
+@app.command()
+def registry_stats(
+    registry: str = typer.Option("./papers_registry.json", "--registry", "-r", help="Fichier registre JSON"),
+) -> None:
+    """Affiche les statistiques du registre de papiers."""
+    from papers_v2.knowledge.papers_registry import PaperRegistry
+
+    reg = PaperRegistry(registry_path=registry)
+    stats = reg.stats()
+
+    table = Table(title="Paper Registry Statistics")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+
+    table.add_row("Total Papers", str(stats["total_papers"]))
+    table.add_row("Total Tags", str(stats["total_tags"]))
+    table.add_row("Years", str(dict(sorted(stats["by_year"].items()))))
+    table.add_row("Domains", str(dict(sorted(stats["by_domain"].items()))))
+
+    console.print(table)
+
+    console.print("\n[bold]Tags disponibles:[/bold]")
+    for tag in reg.list_tags()[:20]:
+        console.print(f"  {tag}")
+
+
+@app.command()
+def registry_show(
+    paper_id: str = typer.Argument(..., help="ID du papier"),
+    registry: str = typer.Option("./papers_registry.json", "--registry", "-r", help="Fichier registre JSON"),
+) -> None:
+    """Affiche les details d'un papier du registre."""
+    from papers_v2.knowledge.papers_registry import PaperRegistry
+
+    reg = PaperRegistry(registry_path=registry)
+    paper = reg.get_paper(paper_id)
+
+    if not paper:
+        console.print(f"[red]Papier '{paper_id}' non trouve.[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold magenta]{paper['title']}[/bold magenta]")
+    console.print(f"[cyan]ID:[/cyan] {paper['id']}")
+    console.print(f"[cyan]Authors:[/cyan] {', '.join(paper.get('authors', []))}")
+    console.print(f"[cyan]Year:[/cyan] {paper.get('year', 'N/A')}")
+    console.print(f"[cyan]Source:[/cyan] {paper.get('source', 'N/A')}")
+    console.print(f"[cyan]URL:[/cyan] {paper.get('url', 'N/A')}")
+    console.print(f"[cyan]Domain:[/cyan] {paper.get('domain', 'N/A')}")
+    console.print(f"[cyan]Relevance:[/cyan] {paper.get('relevance_score', 0):.2f}")
+    console.print(f"[cyan]Tags:[/cyan] {', '.join(paper.get('tags', []))}")
+    console.print(f"\n[bold]Abstract:[/bold]\n{paper.get('abstract', 'N/A')}")
+    console.print(f"\n[bold green]Key Insight:[/bold green]\n{paper.get('key_insight', 'N/A')}")
+
+
 def _display_summary(report: AnalysisReport) -> None:
     table = Table(title="Résumé d'analyse PAPERS V2")
     table.add_column("Métrique", style="cyan")

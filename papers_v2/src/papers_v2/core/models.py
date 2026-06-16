@@ -22,6 +22,16 @@ class Domain(str, Enum):
     AI_INFRASTRUCTURE = "AI Infrastructure"
     DISTRIBUTED_AI_SYSTEMS = "Distributed AI Systems"
     AUTONOMOUS_SOFTWARE_ENGINEERING = "Autonomous Software Engineering"
+    KNOWLEDGE_REPRESENTATION = "Knowledge Representation"
+
+    @classmethod
+    def parse(cls, value: str) -> "Domain":
+        for member in cls:
+            if member.value.lower().replace(" ", "_") == value.lower().replace(" ", "_"):
+                return member
+            if member.name.lower() == value.lower().replace(" ", "_"):
+                return member
+        return cls.KNOWLEDGE_REPRESENTATION
 
 
 class ClaimType(str, Enum):
