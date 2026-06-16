@@ -1,0 +1,431 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "kind": "paper",
+      "title": "fake_paper",
+      "id": "paper:PAPERS-LOCAL-FAKE_PAPER"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'une couche de mémoire récurrente pour les modèles transformeurs, permettant des fenêtres de contexte effectives plus longues sans coût d'attention quadratique.",
+      "id": "contrib:31cda088"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'une règle de mise à jour par gating pour une couche de mémoire neuronale M : M_t = M_{t-1} * g_t + v_t * (1 - g_t).",
+      "id": "contrib:3c009705"
+    },
+    {
+      "kind": "contribution",
+      "text": "Inclusion d'un terme de perte contrastif dans la fonction de perte : L = L_lm + lambda * L_contrastive.",
+      "id": "contrib:c0c4f8f7"
+    },
+    {
+      "kind": "contribution",
+      "text": "L'entraînement end-to-end avec un objectif de modélisation du langage augmenté par une perte contrastive.",
+      "id": "contrib:3aea1bb9"
+    },
+    {
+      "kind": "module",
+      "name": "memory_module",
+      "id": "module:memory_module"
+    },
+    {
+      "kind": "module",
+      "name": "reasoning_module",
+      "id": "module:reasoning_module"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'une couche de mémoire récurrente pour les modèles transformeurs, permettant des fenêtres de contexte effectives plus longues sans coût d'attention quadratique.",
+      "id": "contrib:612ca28d"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'une règle de mise à jour par gating pour une couche de mémoire neuronale M : M_t = M_{t-1} * g_t + v_t * (1 - g_t).",
+      "id": "contrib:8e2a918c"
+    },
+    {
+      "kind": "contribution",
+      "text": "Inclusion d'un terme de perte contrastif dans la fonction de perte : L = L_lm + lambda * L_contrastive.",
+      "id": "contrib:ffd25ae9"
+    },
+    {
+      "kind": "contribution",
+      "text": "L'entraînement end-to-end avec un objectif de modélisation du langage augmenté par une perte contrastive.",
+      "id": "contrib:8476352e"
+    },
+    {
+      "kind": "paper",
+      "title": "TACO: A Benchmark for Open-Domain Text-to-SQL with Ambiguous and Cross-Database Queries",
+      "id": "paper:PAPERS-HF-b0339ff3"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction de TACO, un benchmark pour le Text-to-SQL en domaine ouvert avec des requêtes ambiguës et inter-bases.",
+      "id": "contrib:366ca3a8"
+    },
+    {
+      "kind": "contribution",
+      "text": "Création de TACO composé de 1500 exemples Text-to-SQL du monde réel basés sur un service de données de ville intelligente et de 13000 exemples synthétiques de haute qualité générés à partir de portails de données ouverts couvrant divers domaines tels que les transports, la santé et la finance.",
+      "id": "contrib:96de6bb2"
+    },
+    {
+      "kind": "contribution",
+      "text": "Développement d'un pipeline de synthèse de données efficace pour construire les exemples synthétiques tout en préservant la complexité des requêtes du monde réel.",
+      "id": "contrib:44087451"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'une ligne de base TACO-SQL (composée de réécriture de questions, liaison de tables et planification de requêtes) pour illustrer les défis posés par TACO et mieux comprendre les limitations des approches Text-to-SQL existantes.",
+      "id": "contrib:44b11196"
+    },
+    {
+      "kind": "contribution",
+      "text": "Démonstration que malgré les meilleurs résultats obtenus avec TACO-SQL, un écart significatif subsiste entre les approches existantes et le SQL écrit par l'homme, soulignant la difficulté du Text-to-SQL en domaine ouvert et positionnant TACO comme un benchmark précieux pour guider la recherche future.",
+      "id": "contrib:ca03b5ea"
+    },
+    {
+      "kind": "module",
+      "name": "planning_module",
+      "id": "module:planning_module"
+    },
+    {
+      "kind": "paper",
+      "title": "OmniVideo-100K: A Dataset for Audio-Visual Reasoning through Structured Scripts and Evidence Chains",
+      "id": "paper:PAPERS-HF-a0b99ba7"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'un moteur de données automatisé comprenant deux mécanismes : (1) Entity-Anchored Video Scripting qui transforme les vidéos en scripts structurés comprenant des résumés, des listes d'entités principales et des descriptions audio-visuelles par segment, servant de prior global pour assurer la cohérence référentielle entre segments et reconstruire les associations audio-visuelles ; (2) Clue-Guided QA Generation qui incite les modèles à extraire des indices multimodaux inter-segments du script et à générer des paires de questions-réponses basées sur ces indices de haute valeur.",
+      "id": "contrib:991bd90d"
+    },
+    {
+      "kind": "contribution",
+      "text": "Construction du jeu de données instruction-tuné OmniVideo-100K et d'un ensemble de test vérifié par l'humain, OmniVideo-Test, en utilisant le pipeline proposé.",
+      "id": "contrib:6f40f218"
+    },
+    {
+      "kind": "contribution",
+      "text": "Démonstration que l'ajustement fin (fine-tuning) de VITA-1.5, Qwen2.5-Omni-7B et Qwen3-Omni-30B sur OmniVideo-100K produit des gains de performance allant jusqu'à 20.59% sur OmniVideo-Test, démontrant une forte généralisation (jusqu'à 12.64% d'amélioration) sur des benchmarks établis comme Daily-Omni et JointAVBench.",
+      "id": "contrib:39db6b08"
+    },
+    {
+      "kind": "paper",
+      "title": "IndustryBench-MIPU: Benchmarking Multi-Image Attribute Value Extraction for Industrial Products",
+      "id": "paper:PAPERS-HF-2db5ab33"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'IndustryBench-MIPU, le premier benchmark à grande échelle pour la compréhension des produits industriels multi-images, axé sur l'extraction d'attributs structurés (reconstitution de paires propriété-valeur à partir d'images de produits).",
+      "id": "contrib:75643dcf"
+    },
+    {
+      "kind": "contribution",
+      "text": "Évaluation de la capacité des Modèles de Langage Multimodaux (MLLMs) à récupérer les spécifications des produits industriels à partir d'images multiples.",
+      "id": "contrib:cdf90201"
+    },
+    {
+      "kind": "contribution",
+      "text": "Identification d'une lacune dans les performances des MLLMs, montrant un écart entre la précision et la complétude lors de l'extraction d'attributs multi-images (la complétude multi-image est le goulot d'étranglement principal).",
+      "id": "contrib:bab0f582"
+    },
+    {
+      "kind": "contribution",
+      "text": "Démonstration que le passage de l'extraction d'attributs d'image unique à l'extraction multi-image entraîne une perte significative de rappel (15-34 points de pourcentage).",
+      "id": "contrib:eec5d7ce"
+    },
+    {
+      "kind": "paper",
+      "title": "TACO: A Benchmark for Open-Domain Text-to-SQL with Ambiguous and Cross-Database Queries",
+      "id": "paper:PAPERS-HF-b1e90155"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction de TACO, un benchmark pour le Text-to-SQL en domaine ouvert avec des requêtes ambiguës et inter-bases.",
+      "id": "contrib:cb9a41e2"
+    },
+    {
+      "kind": "contribution",
+      "text": "Création de TACO à partir de 1500 exemples réels basés sur un service de données de ville intelligente et 13000 exemples synthétiques de haute qualité générés à partir de portails de données ouverts couvrant divers domaines tels que les transports, la santé et la finance.",
+      "id": "contrib:68925bfe"
+    },
+    {
+      "kind": "contribution",
+      "text": "Développement d'un pipeline de synthèse de données efficace pour construire les exemples synthétiques tout en préservant la complexité des requêtes du monde réel.",
+      "id": "contrib:27ef1600"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'une ligne de base TACO-SQL (composée de réécriture de questions, liaison de tables et planification de requêtes) pour illustrer les défis posés par TACO et comprendre les limitations des approches Text-to-SQL existantes.",
+      "id": "contrib:29b61acb"
+    },
+    {
+      "kind": "contribution",
+      "text": "Démonstration que, bien que TACO-SQL obtienne les meilleurs résultats, un écart significatif subsiste entre les approches existantes et le SQL écrit par l'homme, soulignant la difficulté du Text-to-SQL en domaine ouvert et positionnant TACO comme un benchmark précieux pour guider la recherche future.",
+      "id": "contrib:76de8e33"
+    },
+    {
+      "kind": "paper",
+      "title": "OmniVideo-100K: A Dataset for Audio-Visual Reasoning through Structured Scripts and Evidence Chains",
+      "id": "paper:PAPERS-HF-8c9fcee4"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'un moteur de données automatisé comprenant deux mécanismes : (1) Entity-Anchored Video Scripting qui transforme les vidéos en scripts structurés comprenant des résumés, des listes d'entités principales et des descriptions audio-visuelles par segment, utilisant la liste d'entités comme une priorité globale pour assurer la cohérence référentielle entre segments et reconstruire les associations audio-visuelles.",
+      "id": "contrib:097b5c01"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'une génération de QA guidée par des indices (Clue-Guided QA Generation) qui incite les modèles à extraire des indices multimodaux intersegments à partir du script, puis à générer des paires QA basées sur ces indices de haute valeur.",
+      "id": "contrib:27dd9549"
+    },
+    {
+      "kind": "contribution",
+      "text": "Construction du jeu de données instruction-tuné OmniVideo-100K et d'un ensemble de test vérifié par l'humain, OmniVideo-Test, en utilisant le pipeline proposé.",
+      "id": "contrib:4f4b9e47"
+    },
+    {
+      "kind": "contribution",
+      "text": "Démonstration que l'ajustement fin (fine-tuning) de VITA-1.5, Qwen2.5-Omni-7B et Qwen3-Omni-30B sur OmniVideo-100K produit des gains de performance allant jusqu'à 20.59% sur OmniVideo-Test, démontrant une bonne généralisation (jusqu'à 12.64% d'améliorations) sur des benchmarks établis comme Daily-Omni et JointAVBench.",
+      "id": "contrib:3886d684"
+    },
+    {
+      "kind": "contribution",
+      "text": "proposition d'un layer de mémoire neural M qui met à jour via un gating : M_t = M_{t-1} * g_t + v_t * (1 - g_t)",
+      "id": "contrib:d61e9180"
+    },
+    {
+      "kind": "contribution",
+      "text": "utilisation d'un terme contrastif dans la perte : L = L_lm + lambda * L_contrastive",
+      "id": "contrib:f667fe8c"
+    },
+    {
+      "kind": "contribution",
+      "text": "méthode testée sur pg19 et proof-pile",
+      "id": "contrib:168ec8ad"
+    },
+    {
+      "kind": "contribution",
+      "text": "introduction d'un layer de mémoire récurrente pour les modèles transformers, permettant des fenêtres de contexte plus longues sans coût d'attention quadratique",
+      "id": "contrib:33263c23"
+    },
+    {
+      "kind": "contribution",
+      "text": "Introduction d'une couche de mémoire récurrente pour les modèles transformeurs, permettant des fenêtres de contexte effectives plus longues sans coût d'attention quadratique.",
+      "id": "contrib:e87c6a3e"
+    },
+    {
+      "kind": "contribution",
+      "text": "Proposition d'une règle de mise à jour par gating pour une couche de mémoire neuronale M : M_t = M_{t-1} * g_t + v_t * (1 - g_t).",
+      "id": "contrib:061c67fc"
+    },
+    {
+      "kind": "contribution",
+      "text": "Inclusion d'un terme de perte contrastif dans la fonction de perte : L = L_lm + lambda * L_contrastive.",
+      "id": "contrib:b4457356"
+    },
+    {
+      "kind": "contribution",
+      "text": "L'entraînement end-to-end avec un objectif de modélisation du langage augmenté par une perte contrastive.",
+      "id": "contrib:9be019ba"
+    }
+  ],
+  "edges": [
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:31cda088"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:3c009705"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:c0c4f8f7"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:3aea1bb9"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "module:memory_module"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "module:reasoning_module"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:612ca28d"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:8e2a918c"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:ffd25ae9"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:8476352e"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:d61e9180"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:f667fe8c"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:168ec8ad"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:33263c23"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:e87c6a3e"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:061c67fc"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:b4457356"
+    },
+    {
+      "source": "paper:PAPERS-LOCAL-FAKE_PAPER",
+      "target": "contrib:9be019ba"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "contrib:366ca3a8"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "contrib:96de6bb2"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "contrib:44087451"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "contrib:44b11196"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "contrib:ca03b5ea"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "module:reasoning_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-b0339ff3",
+      "target": "module:planning_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-a0b99ba7",
+      "target": "contrib:991bd90d"
+    },
+    {
+      "source": "paper:PAPERS-HF-a0b99ba7",
+      "target": "contrib:6f40f218"
+    },
+    {
+      "source": "paper:PAPERS-HF-a0b99ba7",
+      "target": "contrib:39db6b08"
+    },
+    {
+      "source": "paper:PAPERS-HF-a0b99ba7",
+      "target": "module:reasoning_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-a0b99ba7",
+      "target": "module:memory_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "contrib:75643dcf"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "contrib:cdf90201"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "contrib:bab0f582"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "contrib:eec5d7ce"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "module:reasoning_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-2db5ab33",
+      "target": "module:memory_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "contrib:cb9a41e2"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "contrib:68925bfe"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "contrib:27ef1600"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "contrib:29b61acb"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "contrib:76de8e33"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "module:reasoning_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-b1e90155",
+      "target": "module:memory_module"
+    },
+    {
+      "source": "paper:PAPERS-HF-8c9fcee4",
+      "target": "contrib:097b5c01"
+    },
+    {
+      "source": "paper:PAPERS-HF-8c9fcee4",
+      "target": "contrib:27dd9549"
+    },
+    {
+      "source": "paper:PAPERS-HF-8c9fcee4",
+      "target": "contrib:4f4b9e47"
+    },
+    {
+      "source": "paper:PAPERS-HF-8c9fcee4",
+      "target": "contrib:3886d684"
+    },
+    {
+      "source": "paper:PAPERS-HF-8c9fcee4",
+      "target": "module:reasoning_module"
+    }
+  ]
+}

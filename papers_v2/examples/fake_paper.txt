@@ -1,0 +1,7 @@
+# This paper studies memory-augmented transformer architectures for long-context reasoning.
+# Authors propose a neural memory layer M that updates via gating: M_t = M_{t-1} * g_t + v_t * (1 - g_t)
+# Loss includes contrastive term: L = L_lm + lambda * L_contrastive
+# Tested on pg19 and proof-pile.
+# Code: https://github.com/example/neural-memory-layer
+
+This work introduces a recurrent memory layer for transformer models, enabling longer effective context windows without quadratic attention cost. The key contribution is a gated update rule over a compressed memory state, trained end-to-end with a language modeling objective augmented by a contrastive loss.

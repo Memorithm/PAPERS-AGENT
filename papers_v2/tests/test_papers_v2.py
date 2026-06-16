@@ -1,0 +1,531 @@
+import json
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from papers_v2.core.models import (
+    AnalysisReport,
+    CognitionItem,
+    EvolutionConfig,
+    EvolutionNodeModel,
+    EvolutionResult,
+    IntegrationScore,
+    Publication,
+    ReproducibilityScore,
+)
+from papers_v2.core.orchestrator import PapersEngine
+from papers_v2.evolution.cognition import CognitionBase, CognitionEntry
+from papers_v2.evolution.database import EvolutionDatabase, EvolutionNode, SamplingPolicy
+from papers_v2.evolution.researcher import Researcher
+from papers_v2.evolution.engineer import Engineer
+from papers_v2.evolution.analyzer import EvolutionAnalyzer
+from papers_v2.evolution.loop import EvolutionLoop
+
+
+class TestPublicationModel:
+    def test_create_publication(self):
+        pub = Publication(id="PAPERS-2024-001", title="Test Paper", authors=[])
+        assert pub.title == "Test Paper"
+        assert pub.id == "PAPERS-2024-001"
+
+    def test_publication_with_domains(self):
+        pub = Publication(
+            id="P-001",
+            title="Test",
+            authors=[],
+            domains=["LLM Architectures", "Memory Systems"],
+        )
+        assert len(pub.domains) == 2
+
+
+class TestReproducibilityScore:
+    def test_score_computation(self):
+        score = ReproducibilityScore(
+            documentation=0.8,
+            code_available=1.0,
+            data_available=0.5,
+            results_reproducible=0.5,
+            acceptable_cost=0.5,
+        )
+        assert 0.0 <= score.score <= 1.0
+
+    def test_perfect_score(self):
+        score = ReproducibilityScore(
+            documentation=1.0,
+            code_available=1.0,
+            data_available=1.0,
+            results_reproducible=1.0,
+            acceptable_cost=1.0,
+        )
+        assert score.score == 1.0
+
+    def test_zero_score(self):
+        score = ReproducibilityScore(
+            documentation=0.0,
+            code_available=0.0,
+            data_available=0.0,
+            results_reproducible=0.0,
+            acceptable_cost=0.0,
+        )
+        assert score.score == 0.0
+
+
+class TestIntegrationScore:
+    def test_score_computation(self):
+        score = IntegrationScore(
+            reproducibility=0.7,
+            architectural_impact=0.6,
+            hardware_cost=0.5,
+            code_availability=1.0,
+            scientific_maturity=0.5,
+        )
+        assert 0.0 <= score.score <= 1.0
+
+    def test_interpretation_experimentation(self):
+        score = IntegrationScore(
+            reproducibility=0.7,
+            architectural_impact=0.6,
+            hardware_cost=0.5,
+            code_availability=1.0,
+            scientific_maturity=0.5,
+        )
+        assert score.interpretation == "EXPERIMENTATION"
+
+    def test_interpretation_integration(self):
+        score = IntegrationScore(
+            reproducibility=0.9,
+            architectural_impact=0.9,
+            hardware_cost=0.8,
+            code_availability=1.0,
+            scientific_maturity=0.9,
+        )
+        assert score.interpretation == "INTEGRATION POSSIBLE"
+
+    def test_interpretation_non_prioritaire(self):
+        score = IntegrationScore(
+            reproducibility=0.1,
+            architectural_impact=0.1,
+            hardware_cost=0.1,
+            code_availability=0.0,
+            scientific_maturity=0.1,
+        )
+        assert score.interpretation == "NON PRIORITAIRE"
+
+
+class TestOrchestrator:
+    def test_orchestrator_runs(self):
+        engine = PapersEngine(use_llm=False)
+        pub = Publication(id="PAPERS-2024-TEST", title="Test", authors=[])
+        report = engine.analyze(pub)
+        assert isinstance(report, AnalysisReport)
+        assert report.publication.title == "Test"
+
+    def test_orchestrator_with_abstract(self):
+        engine = PapersEngine(use_llm=False)
+        pub = Publication(
+            id="P-002",
+            title="Test Paper with Abstract",
+            authors=[],
+            abstract="We propose a novel method for transformer optimization.",
+        )
+        report = engine.analyze(pub)
+        assert len(report.scientific_contributions) > 0
+
+    def test_critical_analysis_no_crash(self):
+        engine = PapersEngine(use_llm=False)
+        pub = Publication(id="P-003", title="Test", authors=[])
+        report = engine.analyze(pub)
+        ca = report.critical_analysis
+        assert "strengths" in ca
+        assert "weaknesses" in ca
+
+
+class TestCognitionBase:
+    def test_add_and_retrieve(self, tmp_path):
+        cb = CognitionBase(persist_dir=str(tmp_path / "cog_test"))
+        entry = CognitionEntry(
+            content="Use chunk-wise computation for O(N) complexity",
+            source="paper_1",
+            entry_type="heuristic",
+            tags=["linear_attention", "efficiency"],
+        )
+        cb.add_entry(entry)
+        assert cb.count() == 1
+
+    def test_add_from_papers(self, tmp_path):
+        cb = CognitionBase(persist_dir=str(tmp_path / "cog_test2"))
+        papers = [
+            {"content": "Linear attention reduces quadratic complexity.", "source": "paper_1"},
+            {"content": "Delta rule enables parallel training.", "source": "paper_2"},
+        ]
+        cb.add_from_papers(papers)
+        assert cb.count() == 2
+
+    def test_add_multiple_entries(self, tmp_path):
+        cb = CognitionBase(persist_dir=str(tmp_path / "cog_test3"))
+        entries = [
+            CognitionEntry(content=f"Knowledge item {i}", source=f"src_{i}")
+            for i in range(10)
+        ]
+        cb.add_entries(entries)
+        assert cb.count() == 10
+
+    def test_get_all_entries(self, tmp_path):
+        cb = CognitionBase(persist_dir=str(tmp_path / "cog_test4"))
+        entry = CognitionEntry(content="Test content", source="test")
+        cb.add_entry(entry)
+        all_entries = cb.get_all_entries()
+        assert len(all_entries) == 1
+        assert all_entries[0].content == "Test content"
+
+
+class TestEvolutionDatabase:
+    def test_add_and_retrieve_node(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test.json"))
+        node = EvolutionNode(
+            program="def train(): pass",
+            motivation="Basic training loop",
+            score=0.75,
+        )
+        db.add_node(node)
+        assert db.count() == 1
+        retrieved = db.get_node(node.id)
+        assert retrieved is not None
+        assert retrieved.score == 0.75
+
+    def test_greedy_sampling(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test2.json"))
+        for i in range(10):
+            db.add_node(EvolutionNode(
+                program=f"prog_{i}",
+                motivation=f"m_{i}",
+                score=float(i) / 10,
+            ))
+        sampled = db.sample(n=3, policy=SamplingPolicy.GREEDY)
+        assert len(sampled) == 3
+        assert sampled[0].score >= sampled[1].score >= sampled[2].score
+
+    def test_random_sampling(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test3.json"))
+        for i in range(10):
+            db.add_node(EvolutionNode(program=f"p_{i}", score=float(i)))
+        sampled = db.sample(n=3, policy=SamplingPolicy.RANDOM)
+        assert len(sampled) == 3
+
+    def test_ucb1_sampling(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test4.json"))
+        for i in range(5):
+            db.add_node(EvolutionNode(program=f"p_{i}", score=float(i) / 5))
+        sampled = db.sample(n=3, policy=SamplingPolicy.UCB1)
+        assert len(sampled) == 3
+
+    def test_top_k(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test5.json"))
+        for i in range(20):
+            db.add_node(EvolutionNode(program=f"p_{i}", score=float(i)))
+        top = db.top_k(5)
+        assert len(top) == 5
+        assert top[0].score == 19.0
+
+    def test_best(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test6.json"))
+        db.add_node(EvolutionNode(program="low", score=0.1))
+        db.add_node(EvolutionNode(program="high", score=0.9))
+        best = db.best()
+        assert best is not None
+        assert best.score == 0.9
+
+    def test_stats(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test7.json"))
+        db.add_node(EvolutionNode(program="a", score=0.5))
+        db.add_node(EvolutionNode(program="b", score=1.0))
+        stats = db.stats()
+        assert stats["total_nodes"] == 2
+        assert stats["max_score"] == 1.0
+
+    def test_prune_bottom(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_test8.json"))
+        for i in range(100):
+            db.add_node(EvolutionNode(program=f"p_{i}", score=float(i)))
+        db.prune_bottom(keep_top=50)
+        assert db.count() <= 50
+
+    def test_save_and_load(self, tmp_path):
+        db_path = str(tmp_path / "db_save.json")
+        db = EvolutionDatabase(persist_path=db_path)
+        db.add_node(EvolutionNode(program="test", score=0.5))
+        db.save()
+
+        db2 = EvolutionDatabase(persist_path=db_path)
+        assert db2.count() == 1
+
+    def test_sampling_empty_database(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_empty.json"))
+        sampled = db.sample(n=5)
+        assert sampled == []
+
+    def test_map_elites_sampling(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_me.json"))
+        for i in range(20):
+            db.add_node(EvolutionNode(program=f"p_{i}", score=float(i) / 20))
+        sampled = db.sample(n=5, policy=SamplingPolicy.MAP_ELITES)
+        assert len(sampled) >= 1
+
+    def test_export_summary(self, tmp_path):
+        db = EvolutionDatabase(persist_path=str(tmp_path / "db_summary.json"))
+        db.add_node(EvolutionNode(program="p1", score=0.8))
+        db.add_node(EvolutionNode(program="p2", score=0.2))
+        summary = db.export_summary()
+        assert len(summary) == 2
+        assert summary[0]["score"] == 0.8
+
+
+class TestEngineer:
+    def test_execute_with_function(self):
+        def my_eval(program: str) -> dict:
+            return {"success": True, "score": 0.95, "metrics": {"loss": 0.1}}
+
+        eng = Engineer()
+        result = eng.execute(program="print('hello')", eval_function=my_eval)
+        assert result["success"]
+        assert result["score"] == 0.95
+
+    def test_execute_failing_function(self):
+        def my_eval(program: str) -> dict:
+            raise ValueError("test error")
+
+        eng = Engineer()
+        result = eng.execute(program="bad code", eval_function=my_eval)
+        assert not result["success"]
+
+    def test_compute_fitness(self):
+        metrics = {"score": 0.8, "loss": 0.3}
+        fitness = Engineer.compute_fitness(metrics)
+        assert fitness == 0.8
+
+    def test_compute_fitness_with_llm_judge(self):
+        metrics = {"score": 0.7}
+        fitness = Engineer.compute_fitness(metrics, llm_judge_score=0.9, llm_weight=0.2)
+        expected = 0.7 * 0.8 + 0.9 * 0.2
+        assert abs(fitness - expected) < 0.001
+
+
+class TestEvolutionAnalyzer:
+    def test_heuristic_analysis_success(self):
+        analyzer = EvolutionAnalyzer()
+        result = analyzer.analyze(
+            motivation="Test motivation",
+            program="print('hello')",
+            results={"success": True, "score": 0.9},
+        )
+        assert "summary" in result
+        assert "strengths" in result
+        assert "weaknesses" in result
+        assert "actionable_insights" in result
+
+    def test_heuristic_analysis_failure(self):
+        analyzer = EvolutionAnalyzer()
+        result = analyzer.analyze(
+            motivation="Test",
+            program="bad code",
+            results={"success": False, "error": "Syntax error at line 5"},
+        )
+        assert "root_cause" in result
+
+
+class TestEvolutionLoop:
+    def test_loop_creation(self):
+        loop = EvolutionLoop(task_description="Test task")
+        assert loop.task_description == "Test task"
+        assert loop.max_rounds == 50
+
+    def test_loop_run_with_eval_function(self, tmp_path):
+        def my_eval(program: str) -> dict:
+            return {"success": True, "score": 0.85, "metrics": {"loss": 0.2}}
+
+        loop = EvolutionLoop(
+            task_description="Optimize a simple function",
+            max_rounds=2,
+            use_llm=False,
+            output_dir=str(tmp_path / "evo_out"),
+            db_path=str(tmp_path / "evo_db.json"),
+            cognition_path=str(tmp_path / "evo_cog"),
+        )
+        result = loop.run(
+            eval_function=my_eval,
+            n_candidates_per_round=2,
+            n_context_nodes=3,
+            n_cognition=3,
+            verbose=False,
+        )
+        assert result["success"]
+        assert result["total_rounds"] >= 1
+        assert result["total_candidates"] >= 2
+        assert "best_score" in result
+
+    def test_loop_run_without_eval_raises(self):
+        loop = EvolutionLoop(task_description="Test")
+        with pytest.raises(ValueError, match="eval_function or eval_command"):
+            loop.run()
+
+    def test_loop_saves_state(self, tmp_path):
+        def my_eval(program: str) -> dict:
+            return {"success": True, "score": 0.5, "metrics": {}}
+
+        output_dir = tmp_path / "evo_state"
+        loop = EvolutionLoop(
+            task_description="Test save",
+            max_rounds=1,
+            use_llm=False,
+            output_dir=str(output_dir),
+            db_path=str(tmp_path / "db.json"),
+            cognition_path=str(tmp_path / "cog"),
+        )
+        loop.run(eval_function=my_eval, n_candidates_per_round=1, verbose=False)
+        state_path = output_dir / "evolution_state.json"
+        assert state_path.exists()
+
+    def test_loop_early_stop_target(self, tmp_path):
+        def my_eval(program: str) -> dict:
+            return {"success": True, "score": 0.99, "metrics": {}}
+
+        loop = EvolutionLoop(
+            task_description="Early stop test",
+            max_rounds=10,
+            target_score=0.9,
+            use_llm=False,
+            output_dir=str(tmp_path / "evo_early"),
+            db_path=str(tmp_path / "db_early.json"),
+            cognition_path=str(tmp_path / "cog_early"),
+        )
+        result = loop.run(eval_function=my_eval, n_candidates_per_round=1, verbose=False)
+        assert result["stopped_early"]
+        assert result["best_score"] >= 0.9
+
+    def test_loop_patience_stop(self, tmp_path):
+        scores = iter([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+
+        def my_eval(program: str) -> dict:
+            s = next(scores)
+            return {"success": True, "score": s, "metrics": {}}
+
+        loop = EvolutionLoop(
+            task_description="Patience test",
+            max_rounds=50,
+            patience=3,
+            use_llm=False,
+            output_dir=str(tmp_path / "evo_pat"),
+            db_path=str(tmp_path / "db_pat.json"),
+            cognition_path=str(tmp_path / "cog_pat"),
+        )
+        result = loop.run(eval_function=my_eval, n_candidates_per_round=1, verbose=False)
+        assert result["stopped_early"]
+
+    def test_display_summary(self, capsys):
+        result = {
+            "success": True,
+            "best_score": 0.95,
+            "total_rounds": 10,
+            "total_candidates": 30,
+            "total_time_seconds": 120.0,
+            "stopped_early": True,
+            "cognition_count": 5,
+            "database_stats": {"mean_score": 0.5, "max_score": 0.95},
+        }
+        EvolutionLoop.display_summary(result)
+        captured = capsys.readouterr()
+        assert captured.out
+
+
+class TestEvolutionModels:
+    def test_cognition_item(self):
+        item = CognitionItem(
+            id="c1",
+            content="Test cognition",
+            item_type="heuristic",
+            tags=["attention"],
+        )
+        assert item.id == "c1"
+        assert item.item_type == "heuristic"
+
+    def test_evolution_node_model(self):
+        node = EvolutionNodeModel(
+            id="n1",
+            program="def train(): pass",
+            score=0.8,
+        )
+        assert node.id == "n1"
+        assert node.score == 0.8
+
+    def test_evolution_config_default(self):
+        config = EvolutionConfig()
+        assert config.max_rounds == 50
+        assert config.model == "gemma4:e2b"
+
+    def test_evolution_config_save_load(self, tmp_path):
+        config = EvolutionConfig(
+            task_description="Test task",
+            max_rounds=10,
+        )
+        path = tmp_path / "config.yaml"
+        config.save(path)
+
+        loaded = EvolutionConfig.load(path)
+        assert loaded.task_description == "Test task"
+        assert loaded.max_rounds == 10
+
+    def test_evolution_result(self):
+        result = EvolutionResult(
+            success=True,
+            best_score=0.9,
+            total_rounds=5,
+            total_candidates=15,
+        )
+        assert result.success
+        assert result.best_score == 0.9
+
+
+class TestResearcher:
+    def test_researcher_creation(self):
+        researcher = Researcher(model="gemma4:e2b")
+        assert researcher.model == "gemma4:e2b"
+
+    def test_fallback_generation(self):
+        researcher = Researcher(model="gemma4:e2b")
+        result = researcher.generate(task_description="Create a simple function")
+        assert "motivation" in result
+        assert "program" in result
+
+    def test_format_cognition(self, tmp_path):
+        researcher = Researcher(model="gemma4:e2b")
+        entries = [
+            CognitionEntry(content="Tip 1", source="paper_1"),
+            CognitionEntry(content="Tip 2", source="paper_2"),
+        ]
+        formatted = researcher._format_cognition(entries)
+        assert "Tip 1" in formatted
+        assert "Tip 2" in formatted
+
+    def test_format_context(self, tmp_path):
+        researcher = Researcher(model="gemma4:e2b")
+        nodes = [
+            EvolutionNode(program="p1", score=0.5, motivation="test"),
+            EvolutionNode(program="p2", score=0.8, analysis="good"),
+        ]
+        formatted = researcher._format_context(nodes)
+        assert "0.5000" in formatted
+        assert "0.8000" in formatted
+
+    def test_generate_batch(self, tmp_path):
+        researcher = Researcher(model="gemma4:e2b")
+        db = EvolutionDatabase(persist_path=str(tmp_path / "res_db.json"))
+        candidates = researcher.generate_batch(
+            task_description="Optimize function",
+            n_candidates=2,
+            database=db,
+        )
+        assert len(candidates) == 2
+        for c in candidates:
+            assert "motivation" in c
+            assert "program" in c
