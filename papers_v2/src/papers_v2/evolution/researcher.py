@@ -137,6 +137,11 @@ class Researcher:
            (program.startswith("'") and program.endswith("'")):
             program = program[1:-1]
         program = program.replace("\\n", "\n").replace("\\t", "\t")
+        # Cap iterations for performance: max 5000 total loops
+        import re
+        program = re.sub(r'steps_per_temp\s*=\s*\d+', 'steps_per_temp = 20', program)
+        program = re.sub(r'(?<!_)iterations?\s*=\s*\d{4,}', 'iterations = 200', program)
+        program = re.sub(r'T_start\s*=\s*\d+\.\d+', 'T_start = 5.0', program)
         return program
 
     def _format_cognition(self, entries: list[CognitionEntry]) -> str:

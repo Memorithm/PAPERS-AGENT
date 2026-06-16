@@ -3,7 +3,13 @@ Circle Packing Experiment - ASI-Evolve / PAPERS V2
 Pack N circles in a unit square, maximizing total area.
 """
 
-import math, random, sys, json, importlib.util, os
+import math, random, sys, json, importlib.util, os, signal
+
+class TimeoutError(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Evaluation timeout")
 
 def load_program(path):
     spec = importlib.util.spec_from_file_location("candidate", path)
@@ -11,7 +17,7 @@ def load_program(path):
     spec.loader.exec_module(mod)
     return mod.place_circles
 
-def evaluate(place_fn, n=26, trials=3):
+def evaluate(place_fn, n=26, trials=1):
     """Returns best score across multiple trials (stochastic algorithms)."""
     best_score = 0.0
     best_placement = None
@@ -92,13 +98,21 @@ def baseline_hexagonal(n):
     return placements[:n]
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        # Generate baseline
-        for name, fn in [("grid", baseline_grid), ("hex", baseline_hexagonal)]:
-            score, _ = evaluate(fn)
-            print(json.dumps({"candidate": name, "score": score}))
-    else:
-        place_fn = load_program(sys.argv[1])
-        score, placement = evaluate(place_fn)
-        result = {"score": score, "success": score > 0, "metrics": {"n_circles": 26}}
-        print(json.dumps(result))
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(10)  # 10 second hard timeout
+    try:
+        if len(sys.argv) < 2:
+            for name, fn in [("grid", baseline_grid), ("hex", baseline_hexagonal)]:
+                score, _ = evaluate(fn)
+                print(json.dumps({"candidate": name, "score": score}))
+        else:
+            place_fn = load_program(sys.argv[1])
+            score, placement = evaluate(place_fn)
+            result = {"score": score, "success": score > 0, "metrics": {"n_circles": 26}}
+            print(json.dumps(result))
+    except TimeoutError:
+        print(json.dumps({"score": 0.0, "success": False, "error": "timeout"}))
+    except Exception as e:
+        print(json.dumps({"score": 0.0, "success": False, "error": str(e)[:200]}))
+    finally:
+        signal.alarm(0)
