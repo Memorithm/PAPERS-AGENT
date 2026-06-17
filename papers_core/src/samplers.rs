@@ -88,9 +88,6 @@ pub struct IslandSampler {
     pub num_islands: usize,
     pub exploration_ratio: f64,
     pub exploitation_ratio: f64,
-    islands: Vec<Vec<usize>>,
-    current_island: usize,
-    generations: usize,
 }
 
 impl IslandSampler {
@@ -99,9 +96,6 @@ impl IslandSampler {
             num_islands,
             exploration_ratio: 0.2,
             exploitation_ratio: 0.3,
-            islands: vec![Vec::new(); num_islands],
-            current_island: 0,
-            generations: 0,
         }
     }
 }

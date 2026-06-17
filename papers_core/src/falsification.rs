@@ -17,6 +17,12 @@ pub struct FalsificationEngine {
     pub tests: Vec<FalsificationTest>,
 }
 
+impl Default for FalsificationEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FalsificationEngine {
     pub fn new() -> Self {
         Self { tests: Vec::new() }

@@ -1,8 +1,9 @@
 # PAPERS V2 — Moteur d'évolution autonome en Rust
 
-[![Rust](https://img.shields.io/badge/Rust-4211%20lignes-orange)](papers_core/)
-[![Tests](https://img.shields.io/badge/tests-49%20OK-green)](papers_core/)
-[![Python legacy](https://img.shields.io/badge/Python-7854%20lignes%20(en%20cours%20de%20migration)-blue)](papers_v2/)
+[![Rust](https://img.shields.io/badge/Rust-6211%20lignes-orange)](papers_core/)
+[![Tests](https://img.shields.io/badge/tests-53%20OK-green)](papers_core/)
+[![Build](https://img.shields.io/badge/build-0%20warnings-brightgreen)]()
+[![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 
 **PAPERS V2** transforme l'analyse de papiers scientifiques en code Rust vivant via une boucle d'évolution autonome.  
 Le pipeline complet : **extraction** → **analyse** → **évolution** → **rapport Markdown**.

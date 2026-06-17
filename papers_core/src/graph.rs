@@ -17,6 +17,12 @@ pub struct GraphMiner {
     kg: ScirustKG,
 }
 
+impl Default for GraphMiner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GraphMiner {
     pub fn new() -> Self {
         Self {

@@ -202,24 +202,36 @@ impl PaperParser {
     }
 
     fn extract_limitations(text: &str) -> Vec<String> {
-        let re = Regex::new(
-            r"(?is)(limitations|limites|weaknesses)\s*[\n:](.+?)(?=\n\s*(references|références|conclusion|appendix|acknowledgements)\s*$|$)",
-        );
-        if let Ok(re) = re {
-            if let Some(caps) = re.captures(text) {
-                if let Some(raw) = caps.get(2) {
-                    return raw
-                        .as_str()
-                        .split(|c| c == '.' || c == '!' || c == '?')
-                        .map(|s| s.trim())
-                        .filter(|s| s.len() > 20)
-                        .take(10)
-                        .map(String::from)
-                        .collect();
-                }
-            }
-        }
-        Vec::new()
+        let header_re = match Regex::new(r"(?is)(?:limitations|limites|weaknesses)\s*[\n:]") {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        let header = match header_re.find(text) {
+            Some(h) => h,
+            None => return Vec::new(),
+        };
+        let content_start = header.end();
+
+        let section_re = match Regex::new(
+            r"(?im)^\s*(?:references|références|conclusion|conclusions|appendix|acknowledgements)\s*$",
+        ) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        let remaining = &text[content_start..];
+        let content_end = section_re
+            .find(remaining)
+            .map(|m| content_start + m.start())
+            .unwrap_or(text.len());
+
+        let content = &text[content_start..content_end];
+        content
+            .split(|c| ['.', '!', '?'].contains(&c))
+            .map(|s| s.trim())
+            .filter(|s| s.len() > 20)
+            .take(10)
+            .map(String::from)
+            .collect()
     }
 
     fn extract_github_urls(text: &str) -> Vec<String> {
@@ -234,16 +246,32 @@ impl PaperParser {
     }
 
     fn extract_references(text: &str) -> Vec<String> {
-        let re = Regex::new(r"\[\d+\]\s*(.+?)(?=\n\[|\z)");
-        re.ok()
-            .map(|re| {
-                re.captures_iter(text)
-                    .filter_map(|caps| caps.get(1))
-                    .map(|m| m.as_str().trim().replace('\n', " "))
-                    .take(50)
-                    .collect()
-            })
-            .unwrap_or_default()
+        let marker_re = match Regex::new(r"\[\d+\]") {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        let positions: Vec<usize> = marker_re.find_iter(text).map(|m| m.start()).collect();
+        if positions.is_empty() {
+            return Vec::new();
+        }
+        let mut results = Vec::new();
+        for i in 0..positions.len() {
+            let start = positions[i];
+            let end = if i + 1 < positions.len() {
+                positions[i + 1]
+            } else {
+                text.len()
+            };
+            let block = &text[start..end];
+            if let Some(bracket_end) = block.find(']') {
+                let ref_text = block[bracket_end + 1..].trim().replace('\n', " ");
+                if !ref_text.is_empty() {
+                    results.push(ref_text);
+                }
+            }
+        }
+        results.truncate(50);
+        results
     }
 }
 

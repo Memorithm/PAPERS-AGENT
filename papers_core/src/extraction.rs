@@ -34,6 +34,12 @@ pub struct ArxivExtractor {
     client: reqwest::blocking::Client,
 }
 
+impl Default for ArxivExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArxivExtractor {
     pub fn new() -> Self {
         Self {
@@ -112,6 +118,12 @@ impl SourceExtractor for ArxivExtractor {
 
 pub struct PdfExtractor;
 
+impl Default for PdfExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PdfExtractor {
     pub fn new() -> Self { Self }
 }
@@ -174,6 +186,12 @@ impl SourceExtractor for PdfExtractor {
 // ── Extracteur Texte brut ───────────────────────────────────────
 
 pub struct PlainTextExtractor;
+
+impl Default for PlainTextExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl PlainTextExtractor {
     pub fn new() -> Self { Self }
@@ -238,6 +256,12 @@ impl SourceExtractor for PlainTextExtractor {
 
 pub struct UrlExtractor {
     client: reqwest::blocking::Client,
+}
+
+impl Default for UrlExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UrlExtractor {

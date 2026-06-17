@@ -43,7 +43,7 @@ impl ReportGenerator {
         for c in &report.contributions {
             md.push_str(&format!("- {}\n", c));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         // Équations
         if !report.equations.is_empty() {
@@ -51,7 +51,7 @@ impl ReportGenerator {
             for eq in &report.equations {
                 md.push_str(&format!("- `{}`\n", eq));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // Variables
@@ -62,7 +62,7 @@ impl ReportGenerator {
             for (name, meaning) in &report.variables {
                 md.push_str(&format!("| {} | {} |\n", name, meaning));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // Algorithmes
@@ -92,7 +92,7 @@ impl ReportGenerator {
         md.push_str(&format!("| Latence | {} |\n", sys.latency.as_deref().unwrap_or("N/A")));
         md.push_str(&format!("| Débit | {} |\n", sys.throughput.as_deref().unwrap_or("N/A")));
         md.push_str(&format!("| Scalabilité | {} |\n", sys.scalability.as_deref().unwrap_or("N/A")));
-        md.push_str("\n");
+        md.push('\n');
 
         // Risques
         if !report.risks.is_empty() {
@@ -105,9 +105,9 @@ impl ReportGenerator {
                 if let Some(ref mitigation) = risk.mitigation {
                     md.push_str(&format!(" (Atténuation: {})", mitigation));
                 }
-                md.push_str("\n");
+                md.push('\n');
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // Références
@@ -116,7 +116,7 @@ impl ReportGenerator {
             for (i, r) in doc.references.iter().enumerate() {
                 md.push_str(&format!("[{}] {}\n", i + 1, r));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // Recommandation
@@ -160,7 +160,7 @@ impl ReportGenerator {
         md.push_str(&format!("| Durée | {:.1}s |\n", result.total_time_secs));
         md.push_str(&format!("| Arrêt précoce | {} |\n", if result.stopped_early { "oui" } else { "non" }));
         md.push_str(&format!("| Succès | {} |\n", if result.success { "oui" } else { "non" }));
-        md.push_str("\n");
+        md.push('\n');
 
         if let Some(ref node) = result.best_node {
             md.push_str("## Meilleur Programme\n\n");
@@ -229,6 +229,10 @@ mod tests {
             reproducibility_score: 0.5,
             impacted_modules: vec!["memory".into()],
             timestamp: "2024-01-01T00:00:00Z".into(),
+            architectural_mapping: serde_json::json!({}),
+            deep_analysis: serde_json::Value::Null,
+            experiment_plan: serde_json::Value::Null,
+            pseudo_code: serde_json::Value::Null,
         }
     }
 

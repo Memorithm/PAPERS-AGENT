@@ -10,6 +10,12 @@ pub struct VerificationReport {
 
 pub struct Verifier;
 
+impl Default for Verifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Verifier {
     pub fn new() -> Self {
         Self

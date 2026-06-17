@@ -20,6 +20,9 @@ pub mod paper_parser;
 pub mod doc_store;
 pub mod engine;
 pub mod reporting;
+pub mod analysis;
+pub mod llm_analyzer;
+pub mod paper_registry;
 
 pub use models::*;
 pub use samplers::Sampler;
@@ -42,3 +45,6 @@ pub use paper_parser::*;
 pub use doc_store::*;
 pub use engine::*;
 pub use reporting::*;
+pub use analysis::*;
+pub use llm_analyzer::*;
+pub use paper_registry::*;

@@ -1,4 +1,4 @@
-use scirust_nas::{NasSearch, NasConfig, Architecture};
+use scirust_nas::{NasSearch, NasConfig};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArchSearch {

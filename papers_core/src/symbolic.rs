@@ -1,4 +1,3 @@
-use ndarray::Array1;
 use scirust_symreg::discover;
 use scirust_solvers::{roots::brent, ode::rk4_fixed, quadrature::simpson_adaptive, linalg::Matrix};
 

@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
-use log::{error, info, warn};
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::HeuristicAnalyzer;
 use crate::doc_store::{DocStore, SearchResult};
 use crate::evolution::EvolutionLoop;
 use crate::extraction::{ExtractedDocument, ExtractionPipeline};
 use crate::llm::{LlmClient, LlmConfig};
+use crate::llm_analyzer::LLmAnalyzer;
 use crate::models::{CognitionItem, EvolutionConfig, EvolutionResult};
 use crate::paper_parser::PaperParser;
 
@@ -27,6 +29,10 @@ pub struct AnalysisReport {
     pub reproducibility_score: f64,
     pub impacted_modules: Vec<String>,
     pub timestamp: String,
+    pub architectural_mapping: serde_json::Value,
+    pub deep_analysis: serde_json::Value,
+    pub experiment_plan: serde_json::Value,
+    pub pseudo_code: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +147,11 @@ impl PapersEngine {
     }
 
     /// Analyse un document extrait (avec ou sans LLM).
+    ///
+    /// Utilise l'analyseur heuristique (`HeuristicAnalyzer`) pour l'extraction
+    /// rapide (équations, variables, risques, scoring) et, si un LLM est
+    /// disponible, le `LLmAnalyzer` pour l'analyse approfondie (contributions,
+    /// résumé, architecture, expérience, pseudo-code, analyse multi-passes).
     pub fn analyze(&mut self, document: &ExtractedDocument) -> AnalysisReport {
         info!("Analyse de: {}", document.title);
 
@@ -153,41 +164,38 @@ impl PapersEngine {
         });
 
         // Analyse LLM si disponible
-        let (summary, contributions) = if let Some(ref llm) = self.llm {
-            let summary_prompt = format!(
-                "Analyse ce papier scientifique et fournis un résumé exécutif concis en français (max 5 phrases).\n\
-                 Titre: {}\nAuteurs: {}\nAbstract: {}\nTexte: {}...",
-                document.title,
-                document.authors.join(", "),
+        let (summary, contributions, arch, deep, exp, pseudo) = if let Some(ref llm) = self.llm {
+            let analyzer = LLmAnalyzer::new(llm);
+
+            let contributions = analyzer.analyze_contributions(&AnalysisReport {
+                document: document.clone(),
+                ..Self::empty_report(document, &parsed)
+            });
+            let summary = analyzer.analyze_executive_summary(
+                &document.title,
                 abstract_text,
-                &text[..text.len().min(4000)]
+                &contributions,
             );
-            let summary = llm.generate(&summary_prompt, Some(
-                "Tu es un analyste scientifique. Réponds en français de façon concise.",
-            )).unwrap_or_else(|_| "Analyse LLM non disponible.".into());
 
-            let contrib_prompt = format!(
-                "Liste les 3 à 5 contributions scientifiques principales de ce papier. \
-                 Format: une contribution par ligne, commence chaque ligne par '- '.\n\
-                 Titre: {}\nTexte: {}...",
-                document.title,
-                &text[..text.len().min(3000)]
+            // Analyses LLM enrichies
+            let arch = analyzer.analyze_architecture(&AnalysisReport {
+                document: document.clone(),
+                executive_summary: summary.clone(),
+                contributions: contributions.clone(),
+                ..Self::empty_report(document, &parsed)
+            });
+            let deep = analyzer.analyze_deep(&document.title, abstract_text, text);
+            let exp = analyzer.analyze_experiment(&document.title, abstract_text, &contributions);
+            let math = analyzer.analyze_mathematical(text);
+            let pseudo = analyzer.analyze_pseudocode(
+                &document.title, abstract_text, &contributions, &math,
             );
-            let contrib_text = llm.generate(&contrib_prompt, Some(
-                "Liste uniquement les contributions, une par ligne, en français."
-            )).unwrap_or_default();
-            let contributions: Vec<String> = contrib_text
-                .lines()
-                .filter(|l| l.trim().starts_with('-') || l.trim().starts_with('•'))
-                .map(|l| l.trim().trim_start_matches('-').trim_start_matches('•').trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect();
 
-            (summary, contributions)
+            (summary, contributions, arch, deep, exp, pseudo)
         } else {
             let summary = format!(
-                "Le papier '{}' (source: {}) est analysé de manière heuristique. \
-                 Cette analyse préliminaire nécessite un examen humain complémentaire.",
+                "Analyse heuristique du papier '{}' (source: {}). \
+                 Un LLM est nécessaire pour une analyse approfondie.",
                 document.title, document.source
             );
             let contributions = if let Some(ref abs) = document.abstract_text {
@@ -197,48 +205,85 @@ impl PapersEngine {
             } else {
                 vec!["Contribution à extraire manuellement.".into()]
             };
-            (summary, contributions)
+            let heuristic = HeuristicAnalyzer::analyze(document, &summary, &contributions);
+
+            let arch = heuristic.architecture.clone();
+            let deep = serde_json::Value::Null;
+            let exp = serde_json::Value::Null;
+            let pseudo = serde_json::Value::Null;
+
+            (summary, contributions, arch, deep, exp, pseudo)
         };
 
-        // Scoring
-        let has_github = document.github_url.is_some();
-        let has_code = text.contains("```") || text.contains("def ") || text.contains("fn ") ||
-            text.contains("class ");
-        let has_equations = !parsed.equations.is_empty();
-        let has_references = !document.references.is_empty();
-
-        let reproducibility = if has_code && has_github { 0.8 }
-            else if has_code { 0.5 }
-            else if has_github { 0.4 }
-            else { 0.2 };
-        let integration = (reproducibility * 0.5_f64
-            + if has_equations { 0.3_f64 } else { 0.1_f64 }
-            + if has_references { 0.2_f64 } else { 0.0_f64 })
-            .min(1.0);
-
+        // Recalculer les scores avec le ScoringEngine
+        let heuristic = HeuristicAnalyzer::analyze(document, &summary, &contributions);
+        let reproducibility = heuristic.reproducibility;
+        let integration = heuristic.integration;
         let recommendation = Recommendation::from_score(integration);
 
         AnalysisReport {
-            equations: parsed.equations,
+            equations: parsed.equations.clone(),
+            variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
+            algorithms: heuristic.extract_algo_descs(),
+            system_requirements: heuristic.system.clone(),
+            risks: heuristic.risks.clone(),
+            recommendation,
+            recommendation_justification: format!(
+                "Score d'intégration: {:.2}. Reproductibilité: {:.2}. Modules impactés: {}.",
+                integration,
+                reproducibility,
+                heuristic.architecture.impacted_modules.join(", ")
+            ),
+            integration_score: integration,
+            reproducibility_score: reproducibility,
+            impacted_modules: heuristic.architecture.impacted_modules.clone(),
+            contributions,
+            executive_summary: summary,
+            document: document.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            architectural_mapping: serde_json::json!({
+                "perception": arch.perception,
+                "memory": arch.memory,
+                "planning": arch.planning,
+                "decision": arch.decision,
+                "action": arch.action,
+                "learning": arch.learning,
+                "reflection": arch.reflection,
+                "evaluation": arch.evaluation,
+                "impacted_modules": arch.impacted_modules,
+                "required_interfaces": arch.required_interfaces,
+                "dependencies": arch.dependencies,
+            }),
+            deep_analysis: deep,
+            experiment_plan: exp,
+            pseudo_code: pseudo,
+        }
+    }
+
+    /// Rapport vide avec les champs obligatoires remplis (utile pour les
+    /// appels intermédiaires à l'analyseur LLM).
+    fn empty_report(document: &ExtractedDocument, parsed: &crate::paper_parser::ParsedPaper) -> AnalysisReport {
+        AnalysisReport {
+            document: document.clone(),
+            contributions: Vec::new(),
+            executive_summary: String::new(),
+            equations: parsed.equations.clone(),
             variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
             algorithms: Vec::new(),
             system_requirements: SystemRequirements {
                 vram: None, ram: None, disk: None, latency: None, throughput: None, scalability: None,
             },
             risks: Vec::new(),
-            recommendation,
-            recommendation_justification: format!(
-                "Score d'intégration: {:.2}. Reproductibilité: {:.2}. {}",
-                integration, reproducibility,
-                if has_github { "Code disponible." } else { "Code non détecté." }
-            ),
-            integration_score: integration,
-            reproducibility_score: reproducibility,
+            recommendation: Recommendation::Reject,
+            recommendation_justification: String::new(),
+            integration_score: 0.0,
+            reproducibility_score: 0.0,
             impacted_modules: Vec::new(),
-            contributions,
-            executive_summary: summary,
-            document: document.clone(),
             timestamp: chrono::Utc::now().to_rfc3339(),
+            architectural_mapping: serde_json::Value::Null,
+            deep_analysis: serde_json::Value::Null,
+            experiment_plan: serde_json::Value::Null,
+            pseudo_code: serde_json::Value::Null,
         }
     }
 
@@ -247,8 +292,8 @@ impl PapersEngine {
         self.doc_store.search(query, top_k)
     }
 
-    /// Lance l'évolution sur un document extrait, en utilisant le LLM pour
-    /// générer du code basé sur les concepts du papier.
+    /// Lance l'évolution sur un document extrait, en utilisant le LLM
+    /// avec le pipeline Researcher → Engineer.
     pub fn evolve(
         &mut self,
         document: &ExtractedDocument,
@@ -282,53 +327,8 @@ impl PapersEngine {
         ]);
 
         let task = config.task_description.clone();
-        let _candidate_count = config.n_candidates_per_round;
 
-        let result = evo.run(|query| {
-            let prompt = format!(
-                "Tu es un ingénieur Rust. GÉNÈRE UNIQUEMENT du code Rust valide.\n\n\
-                 TÂCHE: {}\n\n\
-                 CONTEXTE DU PAPIER: {}\n\n\
-                 CONTEXTE D'ÉVOLUTION: {}\n\n\
-                 FORMAT DE SORTIE STRICT:\n\
-                 ```rust\n\
-                 // Ton code ici - fonction complète et exécutable\n\
-                 ```\n\n\
-                 RÈGLES:\n\
-                 - Code Rust UNIQUEMENT\n\
-                 - Pas de commentaires hors code\n\
-                 - Pas d'explications avant/après\n\
-                 - La fonction doit être auto-suffisante",
-                task,
-                &document.title,
-                query
-            );
-
-            match llm.generate(&prompt, Some(
-                "Tu es un expert Rust. Génère uniquement du code. Pas d'explications."
-            )) {
-                Ok(code) => {
-                    // Vérification basique du code
-                    let has_rust = code.contains("fn ") || code.contains("struct ") ||
-                        code.contains("impl ") || code.contains("use ");
-                    let has_braces = code.contains('{') && code.contains('}');
-                    let is_valid = has_rust && has_braces;
-                    let score = if is_valid {
-                        // Score basé sur la complexité du code
-                        let lines = code.lines().count() as f64;
-                        let complexity = lines.min(50.0) / 50.0;
-                        0.3 + complexity * 0.5
-                    } else {
-                        0.1
-                    };
-                    (is_valid, score)
-                }
-                Err(e) => {
-                    error!("LLM error: {}", e);
-                    (false, 0.0)
-                }
-            }
-        });
+        let result = evo.run_advanced(llm, &task);
 
         info!(
             "Évolution terminée: best={:.4}, {} candidats, {:.1}s",
