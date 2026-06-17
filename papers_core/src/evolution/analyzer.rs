@@ -96,20 +96,44 @@ impl Analyzer {
                     root_cause: json.get("root_cause").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     actionable_insights: extract_list("actionable_insights"),
                     novelty_score: novelty,
-                    cognition_update: String::new(),
+                    cognition_update: Self::build_cognition(
+                        json.get("summary").and_then(|v| v.as_str()).unwrap_or(""),
+                        &extract_list("actionable_insights"),
+                    ),
                 }
             }
             Err(_) => Self::heuristic_analysis(result),
         }
     }
 
-    /// Heuristic fallback when LLM is unavailable.
+    /// Build a structured cognition string from analysis output.
+    pub fn build_cognition(summary: &str, insights: &[String]) -> String {
+        let mut parts = vec![format!("Summary: {}", summary)];
+        parts.push("Actionable Insights:".into());
+        for (i, insight) in insights.iter().enumerate() {
+            parts.push(format!("  {}. {}", i + 1, insight));
+        }
+        parts.join("\n")
+    }
+
+    /// Let the Analyzer store its output in cognition for future rounds.
     fn heuristic_analysis(result: &EngineerOutput) -> AnalysisOutput {
         let summary = format!(
             "Experiment {} with score {:.4}. {}",
             if result.success { "succeeded" } else { "failed" },
             result.score,
             result.error.as_deref().unwrap_or("No errors reported.")
+        );
+        let cognition = Self::build_cognition(
+            &summary,
+            &[
+                if result.error.is_some() {
+                    "Fix implementation issues and resubmit."
+                } else {
+                    "Consider architectural improvements for higher score."
+                }
+                .into(),
+            ],
         );
 
         AnalysisOutput {
@@ -133,7 +157,7 @@ impl Analyzer {
                 .into(),
             ],
             novelty_score: 5.0,
-            cognition_update: String::new(),
+            cognition_update: cognition,
         }
     }
 }

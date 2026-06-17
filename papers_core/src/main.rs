@@ -461,60 +461,25 @@ fn run_interactive(config: &PapersConfig, model: &str) -> Result<()> {
     Ok(())
 }
 
-/// Simple text-based PDF generation.
+/// Simple text-based PDF generation (using enhanced PdfDocument).
 fn generate_pdf(report: &papers_core::engine::AnalysisReport, _md: &str) -> Result<Vec<u8>> {
+    use papers_core::pdf::PdfDocument;
     let doc = &report.document;
-    let content = format!(
-        "PAPERS V2 - Analysis Report\n\
-         Title: {}\nAuteurs: {}\nSource: {}\n\
-         Score intégration: {:.2}\nRecommandation: {}\n\
-         Résumé: {}\nGénéré: {}\n",
-        doc.title, doc.authors.join(", "), doc.source,
-        report.integration_score, report.recommendation.label(),
-        report.executive_summary.chars().take(500).collect::<String>(),
-        report.timestamp,
-    );
 
-    let mut buf = Vec::new();
-    write_minimal_pdf(&mut buf, &content)?;
-    Ok(buf)
-}
+    let algorithms: Vec<(&str, Option<&str>)> = report.algorithms.iter()
+        .map(|a| (a.name.as_str(), a.complexity.as_deref()))
+        .collect();
 
-fn write_minimal_pdf(buf: &mut Vec<u8>, text: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let lines: Vec<&str> = text.lines().collect();
-    let mut stream = String::from("BT\n/F1 10 Tf\n50 750 Td\n");
-    let mut _y = 750i32;
-    for line in &lines {
-        let safe = line.escape_default().to_string();
-        stream.push_str(&format!("({}) Tj\n0 -14 Td\n", safe));
-        _y -= 14;
-        if _y < 50 { break; }
-    }
-    stream.push_str("ET\n");
-    let stream_bytes = stream.as_bytes();
-    let stream_len = stream_bytes.len();
-
-    writeln!(buf, "%PDF-1.4")?;
-    writeln!(buf, "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj")?;
-    writeln!(buf, "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj")?;
-    writeln!(buf, "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Courier>>>>>>/Contents 4 0 R>>endobj")?;
-    writeln!(buf, "4 0 obj<</Length {}>>stream", stream_len)?;
-    buf.write_all(stream_bytes)?;
-    writeln!(buf)?;
-    writeln!(buf, "endstream")?;
-    writeln!(buf, "endobj")?;
-    writeln!(buf, "xref")?;
-    writeln!(buf, "0 5")?;
-    writeln!(buf, "0000000000 65535 f ")?;
-    writeln!(buf, "0000000009 00000 n ")?;
-    writeln!(buf, "0000000058 00000 n ")?;
-    writeln!(buf, "0000000116 00000 n ")?;
-    writeln!(buf, "0000000271 00000 n ")?;
-    writeln!(buf, "trailer")?;
-    writeln!(buf, "<</Size 5/Root 1 0 R>>")?;
-    writeln!(buf, "startxref")?;
-    writeln!(buf, "271")?;
-    writeln!(buf, "%%%%EOF")?;
-    Ok(())
+    PdfDocument::from_analysis_report(
+        &doc.title,
+        &doc.authors,
+        &doc.source,
+        report.integration_score,
+        report.recommendation.label(),
+        &report.executive_summary,
+        &report.contributions,
+        &report.equations,
+        &algorithms,
+    )
+    .context("Failed to generate PDF report")
 }

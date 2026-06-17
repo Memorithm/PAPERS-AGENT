@@ -207,9 +207,7 @@ impl OnnxEmbeddingEngine {
             }
         } else if num_dims == 2 {
             let embed_dim = self.dim.min(shape[1] as usize);
-            for j in 0..embed_dim {
-                pooled[j] = data[j];
-            }
+            pooled[..embed_dim].copy_from_slice(&data[..embed_dim]);
             mask_sum = 1.0;
         }
 

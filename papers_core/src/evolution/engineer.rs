@@ -4,6 +4,7 @@ use std::time::Instant;
 use crate::wasm_executor::{WasmExecutor, WasmConfig, WasmResult};
 
 /// Result of evaluating a candidate program.
+#[derive(Debug, Clone)]
 pub struct EngineerOutput {
     pub success: bool,
     pub score: f64,
@@ -35,14 +36,13 @@ impl Engineer {
         self
     }
 
-    /// Evaluate a program using the injected `eval_fn` or built-in analysis.
+    /// Evaluate a program using the injected `eval_fn`, WASM, or structural analysis.
     pub fn execute<F>(&self, program: &str, eval_fn: Option<F>) -> EngineerOutput
     where
         F: FnOnce(&str) -> EngineerOutput,
     {
         let start = Instant::now();
 
-        // If an eval_fn is provided, use it
         if let Some(f) = eval_fn {
             let mut result = f(program);
             result.runtime_secs = start.elapsed().as_secs_f64();
@@ -70,7 +70,7 @@ impl Engineer {
             }
         }
 
-        // Default: structural analysis with code quality metrics
+        // Fallback: structural analysis with code quality metrics
         self.structural_analysis(program, start)
     }
 
@@ -80,7 +80,6 @@ impl Engineer {
         metrics.insert("fuel_consumed".into(), wasm.fuel_consumed as f64);
         metrics.insert("duration_ms".into(), wasm.duration_ms as f64);
 
-        // Score based on complexity metrics and success
         let base = if wasm.success { 0.4 } else { 0.1 };
         let fuel_efficiency = (wasm.fuel_consumed as f64 / 1000.0).min(1.0) * 0.3;
 
@@ -93,24 +92,24 @@ impl Engineer {
         }
     }
 
-    /// Detailed structural analysis of Rust program.
+    /// Detailed structural analysis of Rust program with code quality scoring.
     fn structural_analysis(&self, program: &str, start: Instant) -> EngineerOutput {
         let mut metrics = HashMap::new();
         let lines = program.lines().count() as f64;
         metrics.insert("lines".into(), lines);
 
-        // Count functions
         let fn_count = program.matches("fn ").count();
-        metrics.insert("functions".into(), fn_count as f64);
-
-        // Count structs, impls, enums
         let struct_count = program.matches("struct ").count();
         let impl_count = program.matches("impl ").count();
-        let _enum_count = program.matches("enum ").count();
+        let enum_count = program.matches("enum ").count();
+        let trait_count = program.matches("trait ").count();
+        metrics.insert("functions".into(), fn_count as f64);
         metrics.insert("structs".into(), struct_count as f64);
         metrics.insert("impls".into(), impl_count as f64);
+        metrics.insert("enums".into(), enum_count as f64);
+        metrics.insert("traits".into(), trait_count as f64);
 
-        // Control flow complexity: if/else/for/while/loop/match
+        // Control flow metrics
         let control_flow = [
             ("if ", "if_count"),
             ("for ", "for_count"),
@@ -122,23 +121,28 @@ impl Engineer {
             metrics.insert(key.to_string(), program.matches(pat).count() as f64);
         }
 
-        // Return types indicate function completeness
+        // Quality indicators
         let has_return_types = program.contains("-> ");
         let has_doc_comments = program.contains("///");
         let has_unsafe = program.contains("unsafe ");
+        let has_tests = program.contains("#[test]");
+        let has_error_handling = program.contains("Result<") || program.contains("Option<");
+        let has_trait_impls = impl_count > 0 && trait_count > 0;
 
-        // Scoring
         let has_fn = fn_count > 0;
         let has_braces = program.contains('{') && program.contains('}');
         let valid = has_fn && has_braces;
 
         if valid {
-            let completeness = if has_return_types { 0.2 } else { 0.0 }
+            let completeness = if has_return_types { 0.15 } else { 0.0 }
                 + if has_doc_comments { 0.1 } else { 0.0 }
-                + if !has_unsafe { 0.1 } else { 0.0 };
-            let complexity = (lines / 50.0).min(1.0) * 0.3;
-            let diversity = (fn_count as f64 / 3.0).min(1.0) * 0.2;
-            let score = 0.2 + completeness + complexity + diversity;
+                + if has_error_handling { 0.1 } else { 0.0 }
+                + if !has_unsafe { 0.05 } else { 0.0 };
+            let complexity = (lines / 80.0).min(1.0) * 0.2;
+            let diversity = ((fn_count + struct_count + enum_count + trait_count) as f64 / 5.0).min(1.0) * 0.2;
+            let quality = if has_tests { 0.1 } else { 0.0 }
+                + if has_trait_impls { 0.05 } else { 0.0 };
+            let score = 0.2 + completeness + complexity + diversity + quality;
 
             EngineerOutput {
                 success: true,

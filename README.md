@@ -1,7 +1,7 @@
 # PAPERS V2 — Moteur d'évolution autonome en Rust
 
-[![Rust](https://img.shields.io/badge/Rust-6211%20lignes-orange)](papers_core/)
-[![Tests](https://img.shields.io/badge/tests-53%20OK-green)](papers_core/)
+[![Rust](https://img.shields.io/badge/Rust-9969%20lignes-orange)](papers_core/)
+[![Tests](https://img.shields.io/badge/tests-80%20OK-green)](papers_core/)
 [![Build](https://img.shields.io/badge/build-0%20warnings-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 

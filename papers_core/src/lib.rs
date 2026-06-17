@@ -25,6 +25,11 @@ pub mod llm_analyzer;
 pub mod paper_registry;
 pub mod wasm_executor;
 pub mod embedding_onnx;
+pub mod gpu;
+pub mod container;
+pub mod queue;
+pub mod signaling;
+pub mod pdf;
 
 pub use models::*;
 pub use samplers::Sampler;
