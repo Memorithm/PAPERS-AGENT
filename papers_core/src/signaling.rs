@@ -343,4 +343,81 @@ mod tests {
         bus.subscribe("*", Arc::new(TestListener));
         bus.emit(PipelineEvent::PipelineCompleted);
     }
+
+    #[test]
+    fn test_coordination_barrier_multiple_threads() {
+        let barrier = Arc::new(CoordinationBarrier::new(3));
+        let mut handles = Vec::new();
+        for i in 0..3 {
+            let b = barrier.clone();
+            handles.push(thread::spawn(move || {
+                b.wait();
+                i
+            }));
+        }
+        let results: Vec<usize> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_signal_wait_timeout_and_reset() {
+        let signal = Signal::new();
+        assert!(!signal.wait_timeout(Duration::from_millis(10)));
+        signal.signal();
+        assert!(signal.wait_timeout(Duration::from_millis(10)));
+        signal.reset();
+        assert!(!signal.wait_timeout(Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn test_event_bus_specific_subscription() {
+        use std::sync::Mutex as StdMutex;
+
+        struct CountListener {
+            count: StdMutex<usize>,
+        }
+        impl EventListener for CountListener {
+            fn on_event(&self, _event: &PipelineEvent) {
+                *self.count.lock().unwrap() += 1;
+            }
+        }
+
+        let bus = EventBus::new();
+        let listener = Arc::new(CountListener {
+            count: StdMutex::new(0),
+        });
+        bus.subscribe("ExtractionStarted", listener.clone());
+
+        bus.emit(PipelineEvent::ExtractionStarted {
+            source: "test".into(),
+        });
+        assert_eq!(*listener.count.lock().unwrap(), 1);
+
+        bus.emit(PipelineEvent::PipelineCompleted);
+        assert_eq!(*listener.count.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_event_bus_recent_events_and_counts() {
+        let bus = EventBus::new();
+        bus.emit(PipelineEvent::ExtractionStarted {
+            source: "a".into(),
+        });
+        bus.emit(PipelineEvent::ExtractionCompleted {
+            doc_id: "a".into(),
+        });
+        bus.emit(PipelineEvent::Shutdown);
+
+        let recent = bus.recent_events(2);
+        assert_eq!(recent.len(), 2);
+        assert!(matches!(recent[0], PipelineEvent::Shutdown));
+
+        let counts = bus.event_counts();
+        assert_eq!(counts.get("ExtractionStarted"), Some(&1));
+        assert_eq!(counts.get("ExtractionCompleted"), Some(&1));
+        assert_eq!(counts.get("Shutdown"), Some(&1));
+    }
 }

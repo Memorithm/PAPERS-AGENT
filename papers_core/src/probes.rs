@@ -383,3 +383,113 @@ pub struct ProbeResult {
     pub execution_time: f64,
     pub test_details: Vec<(&'static str, Result<bool, String>)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_basic_syntax_valid() {
+        let program = r#"
+fn main() {
+    let x = 42;
+    println!("{}", x);
+}
+"#;
+        let probe = RustProbe::new(program);
+        assert!(probe.validate_basic_syntax());
+    }
+
+    #[test]
+    fn test_validate_basic_syntax_invalid_unmatched_brace() {
+        let program = r#"
+fn main() {
+    let x = 42;
+"#;
+        let probe = RustProbe::new(program);
+        assert!(!probe.validate_basic_syntax());
+    }
+
+    #[test]
+    fn test_validate_basic_syntax_invalid_unmatched_paren() {
+        let program = r#"
+fn main() {
+    let x = (1 + 2;
+}
+"#;
+        let probe = RustProbe::new(program);
+        assert!(!probe.validate_basic_syntax());
+    }
+
+    #[test]
+    fn test_has_required_constructs() {
+        let probe = RustProbe::new("fn foo() { let x = 1; }");
+        assert!(probe.has_required_constructs());
+
+        let probe = RustProbe::new("let x = 1;");
+        assert!(!probe.has_required_constructs());
+    }
+
+    #[test]
+    fn test_calculate_cyclomatic_complexity() {
+        let program = r#"
+fn main() {
+    if true {
+        if false {
+        }
+    }
+    for i in 0..10 {
+        while i < 5 {
+            match i {
+                1 => {},
+                2 => {},
+            }
+        }
+    }
+}
+"#;
+        let probe = RustProbe::new(program);
+        let cc = probe.calculate_cyclomatic_complexity();
+        assert_eq!(cc, 7);
+    }
+
+    #[test]
+    fn test_estimate_memory_usage() {
+        let program = r#"
+fn main() {
+    let v = vec![1, 2, 3];
+    let s = String::from("hello");
+    let m = HashMap::new();
+}
+"#;
+        let probe = RustProbe::new(program);
+        let mem = probe.estimate_memory_usage();
+        assert!(mem > 0.0);
+    }
+
+    #[test]
+    fn test_run_tests_valid_program() {
+        let program = r#"
+fn main() {
+    let x = 1 + 1;
+    println!("{}", x);
+}
+"#;
+        let probe = RustProbe::new(program);
+        let result = probe.run_tests();
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert!(result.success_rate > 0.0);
+        assert!(result.passed > 0);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_run_tests_empty_program() {
+        let probe = RustProbe::new("");
+        let result = probe.run_tests();
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert!(!result.errors.is_empty());
+    }
+}

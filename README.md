@@ -1,7 +1,7 @@
 # PAPERS V2 — Moteur d'évolution autonome en Rust
 
-[![Rust](https://img.shields.io/badge/Rust-9969%20lignes-orange)](papers_core/)
-[![Tests](https://img.shields.io/badge/tests-80%20OK-green)](papers_core/)
+[![Rust](https://img.shields.io/badge/Rust-10453%20lignes-orange)](papers_core/)
+[![Tests](https://img.shields.io/badge/tests-106%20OK-green)](papers_core/)
 [![Build](https://img.shields.io/badge/build-0%20warnings-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 
@@ -31,7 +31,7 @@ cargo build --release
 
 ### Tests
 ```bash
-cargo test          # 49 tests (33 unit + 16 intégration)
+cargo test          # 106 tests (90 unit + 16 intégration)
 ```
 
 ---
@@ -81,31 +81,54 @@ papers status
 ## 🏗️ Architecture
 
 ```
-papers_core/                    # Moteur Rust (4211 lignes, 24 modules)
+papers_core/                    # Moteur Rust (9969 lignes, 34 modules)
 ├── src/
-│   ├── main.rs                 # Point d'entrée CLI
+│   ├── main.rs                 # Point d'entrée CLI + REPL interactif
+│   ├── cli.rs                  # Définition CLI (clap, 10 commandes)
+│   ├── config.rs               # Configuration figment (TOML + env vars)
 │   ├── engine.rs               # Orchestrateur principal (extract → analyze → evolve)
-│   ├── extraction.rs           # Pipeline PDF/arXiv/URL/Texte (remplace fitz)
+│   ├── lib.rs                  # Re-exports publics
+│   │
+│   ├── extraction.rs           # Pipeline PDF/arXiv/URL/Texte
 │   ├── paper_parser.rs         # Parser sémantique (regex, sections, équations)
+│   ├── paper_registry.rs       # Registre des papiers analysés
+│   │
 │   ├── doc_store.rs            # Store vectoriel persistant (remplace ChromaDB)
-│   ├── vector_store.rs         # Store vectoriel cosine similarity (remplace FAISS)
+│   ├── vector_store.rs         # HNSW ANN index (remplace FAISS)
 │   ├── embedding.rs            # Wrapper scirust-core::EmbeddingEngine (128-dim)
+│   ├── embedding_onnx.rs       # ONNX Runtime (all-MiniLM-L6-v2) + fallback déterministe
+│   │
 │   ├── reporting.rs            # Générateur de rapports Markdown
-│   ├── evolution.rs            # Boucle d'évolution (UCB1/Greedy/Random/Island)
+│   ├── pdf.rs                  # Export PDF structuré (Helvetica/Courier, tables, code)
+│   ├── analysis.rs             # Analyse heuristique + scoring
+│   ├── llm_analyzer.rs         # Analyse LLM multi-passes (11 méthodes)
+│   │
+│   ├── evolution/              # Boucle d'évolution Researcher→Engineer→Analyzer
+│   │   ├── mod.rs              # EvolutionLoop (run_advanced, UCB1/Greedy/Random)
+│   │   ├── researcher.rs       # Génération code Rust par LLM (7 domaines fallback)
+│   │   ├── engineer.rs         # Évaluation structurale + WASM sandbox
+│   │   └── analyzer.rs         # Analyse résultats + cognition update
+│   │
 │   ├── llm.rs                  # Client LLM (Ollama + OpenAI)
 │   ├── cognition.rs            # Base de connaissances textuelle
 │   ├── database.rs             # Base de données avec recherche vectorielle
 │   ├── models.rs               # Modèles de données (Node, EvolutionConfig, ...)
 │   ├── samplers.rs             # Stratégies d'échantillonnage
-│   ├── cli.rs                  # Définition CLI (clap)
-│   ├── config.rs               # Chargement YAML + deep merge
+│   │
 │   ├── symbolic.rs             # Wrapper scirust-symreg + scirust-solvers
 │   ├── nas.rs                  # Wrapper scirust-nas
 │   ├── graph.rs                # GraphMiner + scirust-neuro-symbolic
 │   ├── pattern_induction.rs    # Induction de motifs
 │   ├── falsification.rs        # Falsification d'hypothèses
 │   ├── verifier.rs             # Vérification formelle
-│   └── probabilistic.rs        # Raisonnement probabiliste
+│   ├── probabilistic.rs        # Raisonnement probabiliste
+│   │
+│   ├── wasm_executor.rs        # Sandbox WASM (wasmtime, fuel limits)
+│   ├── gpu.rs                  # Détection CUDA/NVIDIA automatique
+│   ├── container.rs            # CacheContainer, KnowledgeContainer, EventContainer
+│   ├── queue.rs                # WorkQueue prioritaire, ResultQueue, Backpressure
+│   ├── signaling.rs            # EventBus, Signal, Barrier, Latch, Rendezvous
+│   └── probes.rs               # Benchmark probe (compilation, perf, sécu)
 ```
 
 ### Dépendances externes
@@ -117,14 +140,15 @@ papers_core/                    # Moteur Rust (4211 lignes, 24 modules)
 | `scirust-neuro-symbolic` | Graphe de connaissances neuro-symbolique |
 | `scirust-nas` | Neural Architecture Search |
 | `scirust-symbolic` | Moteur symbolique |
-| `pdf-extract` | Extraction texte PDF (remplace PyMuPDF/fitz) |
+| `wasmtime` | Sandbox WASM pour exécution sécurisée |
+| `ort` | ONNX Runtime (inférence on-device) |
+| `hnsw_rs` | Index ANN pour recherche vectorielle |
+| `figment` | Configuration TOML + env vars |
+| `anyhow` / `thiserror` | Gestion d'erreurs |
+| `tracing` / `metrics` | Observabilité |
+| `pdf-extract` | Extraction texte PDF |
 | `reqwest` | Client HTTP (arXiv API, Ollama, OpenAI) |
-| `serde` / `serde_json` / `serde_yaml` | Sérialisation |
-| `clap` | CLI |
-| `ndarray` | Calcul matriciel |
-| `petgraph` | Algorithmes de graphe |
-| `regex` | Parsing sémantique |
-| `rand` | Aléatoire pour évolution |
+| `serde` / `clap` / `ndarray` | Sérialisation, CLI, calcul matriciel |
 
 ---
 

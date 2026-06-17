@@ -380,4 +380,74 @@ mod tests {
     fn test_escape_pdf_string() {
         assert_eq!(escape_pdf_string("test (parens) \\ slash"), r"test \(parens\) \\ slash");
     }
+
+    #[test]
+    fn test_add_title_produces_valid_pdf() {
+        let mut doc = PdfDocument::new();
+        doc.add_title("My Research Paper");
+        let result = doc.render();
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+        assert!(bytes.ends_with(b"%%%%EOF\n"));
+        let pdf_str = String::from_utf8_lossy(&bytes);
+        assert!(pdf_str.contains("My Research Paper"));
+        assert!(pdf_str.contains("/F2"));
+        assert!(pdf_str.contains("/Helvetica-Bold"));
+    }
+
+    #[test]
+    fn test_add_table_produces_valid_pdf() {
+        let mut doc = PdfDocument::new();
+        doc.add_table(&["Name", "Score"], &[
+            vec!["Alice".to_string(), "95".to_string()],
+            vec!["Bob".to_string(), "87".to_string()],
+        ]);
+        let result = doc.render();
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+        assert!(bytes.ends_with(b"%%%%EOF\n"));
+        let pdf_str = String::from_utf8_lossy(&bytes);
+        assert!(pdf_str.contains("Alice"));
+        assert!(pdf_str.contains("95"));
+        assert!(pdf_str.contains("Bob"));
+        assert!(pdf_str.contains("87"));
+        assert!(pdf_str.contains("Name"));
+        assert!(pdf_str.contains("Score"));
+    }
+
+    #[test]
+    fn test_add_divider_produces_valid_pdf() {
+        let mut doc = PdfDocument::new();
+        doc.add_divider();
+        let result = doc.render();
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+        assert!(bytes.ends_with(b"%%%%EOF\n"));
+        let pdf_str = String::from_utf8_lossy(&bytes);
+        assert!(pdf_str.contains(" m "));
+        assert!(pdf_str.contains(" l S"));
+    }
+
+    #[test]
+    fn test_wrap_text_empty_produces_single_empty_string() {
+        let lines = wrap_text("", 80);
+        assert_eq!(lines, vec![""]);
+    }
+
+    #[test]
+    fn test_wrap_text_long_word_exceeds_max_chars() {
+        let word = "supercalifragilisticexpialidocious";
+        let lines = wrap_text(word, 5);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], word);
+    }
+
+    #[test]
+    fn test_wrap_text_multi_empty_paragraphs() {
+        let lines = wrap_text("\n\n", 80);
+        assert_eq!(lines, vec!["", "", ""]);
+    }
 }

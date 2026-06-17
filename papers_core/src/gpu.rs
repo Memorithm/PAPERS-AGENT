@@ -482,3 +482,67 @@ impl GpuDetector {
         Ok(detector)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_detector() -> GpuDetector {
+        GpuDetector {
+            devices: Vec::new(),
+            cuda_available: false,
+            cuda_path: None,
+            driver_version: None,
+        }
+    }
+
+    #[test]
+    fn test_format_memory_mb() {
+        assert_eq!(GpuDetector::format_memory(0), "0.0 MB");
+        assert_eq!(GpuDetector::format_memory(512), "512.0 MB");
+        assert_eq!(GpuDetector::format_memory(1023), "1023.0 MB");
+    }
+
+    #[test]
+    fn test_format_memory_gb() {
+        assert_eq!(GpuDetector::format_memory(1024), "1.0 GB");
+        assert_eq!(GpuDetector::format_memory(4096), "4.0 GB");
+        assert_eq!(GpuDetector::format_memory(1024 * 1024 - 1), "1024.0 GB");
+    }
+
+    #[test]
+    fn test_format_memory_tb() {
+        assert_eq!(GpuDetector::format_memory(1024 * 1024), "1.0 TB");
+        assert_eq!(GpuDetector::format_memory(1536 * 1024), "1.5 TB");
+        assert_eq!(GpuDetector::format_memory(2 * 1024 * 1024), "2.0 TB");
+    }
+
+    #[test]
+    fn test_check_cuda_availability_returns_bool() {
+        let mut detector = new_detector();
+        let result = detector.check_cuda_availability();
+        let _: bool = result;
+    }
+
+    #[test]
+    fn test_is_cuda_available_fresh() {
+        let detector = new_detector();
+        assert!(!detector.is_cuda_available());
+    }
+
+    #[test]
+    fn test_get_devices_initially_empty() {
+        let detector = new_detector();
+        assert!(detector.get_devices().is_empty());
+    }
+
+    #[test]
+    fn test_gpu_task_enum_values() {
+        let tasks = [GpuTask::Inference, GpuTask::Training, GpuTask::Embedding, GpuTask::General];
+        assert_eq!(tasks.len(), 4);
+        assert_eq!(GpuTask::Inference, GpuTask::Inference);
+        assert_ne!(GpuTask::Inference, GpuTask::Training);
+        assert_ne!(GpuTask::Training, GpuTask::Embedding);
+        assert_ne!(GpuTask::Embedding, GpuTask::General);
+    }
+}

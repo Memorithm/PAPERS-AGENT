@@ -325,3 +325,166 @@ impl CandidateContainer {
         self.candidates.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_cache_insert_and_get() {
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::from_secs(60));
+        cache.insert("key1", 42);
+        cache.insert("key2", 100);
+
+        assert_eq!(cache.get(&"key1"), Some(42));
+        assert_eq!(cache.get(&"key2"), Some(100));
+        assert_eq!(cache.get(&"key3"), None);
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_cache_prune_expired() {
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::ZERO);
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+
+        let removed = cache.prune_expired();
+        assert_eq!(removed, 2);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_cache_lru_eviction() {
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(2, Duration::from_secs(60));
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+        cache.insert("c", 3); // should evict "a" (LRU)
+
+        assert_eq!(cache.get(&"a"), None);
+        assert_eq!(cache.get(&"c"), Some(3));
+        assert_eq!(cache.get(&"b"), Some(2));
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_cache_is_empty() {
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::from_secs(60));
+        assert!(cache.is_empty());
+        cache.insert("x", 1);
+        assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn test_knowledge_add_query_remove() {
+        let mut kc = KnowledgeContainer::new(10, Duration::from_secs(60));
+        kc.add("id1", "hello world", "src1", vec!["greeting".into()]);
+        kc.add("id2", "goodbye world", "src2", vec!["farewell".into()]);
+
+        let results = kc.query("hello", 10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "id1");
+
+        let removed = kc.remove("id1");
+        assert_eq!(removed, Some("hello world".into()));
+        assert_eq!(kc.len(), 1);
+    }
+
+    #[test]
+    fn test_knowledge_tag_indexing() {
+        let mut kc = KnowledgeContainer::new(10, Duration::from_secs(60));
+        kc.add("id1", "content a", "src", vec!["rust".into(), "testing".into()]);
+        kc.add("id2", "content b", "src", vec!["rust".into(), "benchmark".into()]);
+
+        let results = kc.query("testing", 10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "id1");
+
+        let results = kc.query("rust", 10);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_knowledge_prune_expired() {
+        let mut kc = KnowledgeContainer::new(10, Duration::ZERO);
+        kc.add("id1", "content1", "src1", vec!["t1".into()]);
+        kc.add("id2", "content2", "src2", vec!["t2".into()]);
+
+        // query calls prune_expired internally
+        let results = kc.query("content", 10);
+        assert!(results.is_empty());
+        assert!(kc.is_empty());
+    }
+
+    #[test]
+    fn test_candidate_top_k_and_best() {
+        let mut cc = CandidateContainer::new(5);
+        cc.add(CandidateEntry {
+            id: "a".into(),
+            program: "fn main() {}".into(),
+            score: 10.0,
+            metrics: HashMap::new(),
+            generation: 1,
+        });
+        cc.add(CandidateEntry {
+            id: "b".into(),
+            program: "fn main() {}".into(),
+            score: 50.0,
+            metrics: HashMap::new(),
+            generation: 1,
+        });
+        cc.add(CandidateEntry {
+            id: "c".into(),
+            program: "fn main() {}".into(),
+            score: 30.0,
+            metrics: HashMap::new(),
+            generation: 1,
+        });
+
+        let best = cc.best().unwrap();
+        assert_eq!(best.id, "b");
+        assert_eq!(best.score, 50.0);
+
+        let top2 = cc.top_k(2);
+        assert_eq!(top2.len(), 2);
+        assert_eq!(top2[0].id, "b");
+        assert_eq!(top2[1].id, "c");
+    }
+
+    #[test]
+    fn test_candidate_eviction_at_capacity() {
+        let mut cc = CandidateContainer::new(2);
+        cc.add(CandidateEntry {
+            id: "low".into(),
+            program: "".into(),
+            score: 1.0,
+            metrics: HashMap::new(),
+            generation: 0,
+        });
+        cc.add(CandidateEntry {
+            id: "mid".into(),
+            program: "".into(),
+            score: 5.0,
+            metrics: HashMap::new(),
+            generation: 0,
+        });
+        cc.add(CandidateEntry {
+            id: "high".into(),
+            program: "".into(),
+            score: 10.0,
+            metrics: HashMap::new(),
+            generation: 0,
+        });
+
+        assert_eq!(cc.len(), 2);
+        let top = cc.top_k(2);
+        let ids: Vec<&str> = top.iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"high"));
+        assert!(ids.contains(&"mid"));
+        assert!(!ids.contains(&"low"));
+    }
+}
