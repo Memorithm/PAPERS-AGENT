@@ -18,14 +18,22 @@ impl Hypothesis {
         }
     }
 
-    pub fn posterior(&self) -> f64 {
-        if self.likelihoods.is_empty() {
-            return self.prior;
-        }
+    /// Log-unnormalized posterior: log(P(D|H) * P(H)).
+    fn log_posterior(&self) -> f64 {
         let log_prior = self.prior.max(1e-15).ln();
+        if self.likelihoods.is_empty() {
+            return log_prior;
+        }
         let log_likelihood: f64 = self.likelihoods.iter().map(|l| l.max(1e-15).ln()).sum();
-        let total = log_prior + log_likelihood;
-        1.0 / (1.0 + (-total).exp())
+        log_prior + log_likelihood
+    }
+
+    /// Normalized posterior probability (sums to 1 across all hypotheses in a reasoner).
+    /// When called standalone, returns exp(log_posterior) normalized by (1 + exp(lp)).
+    pub fn posterior(&self) -> f64 {
+        let lp = self.log_posterior();
+        let raw = lp.exp();
+        raw / (1.0 + raw)
     }
 
     pub fn update(&mut self, likelihood: f64) {
@@ -42,7 +50,7 @@ impl ProbabilisticReasoner {
     pub fn new(default_prior: f64) -> Self {
         Self {
             hypotheses: Vec::new(),
-            default_prior,
+            default_prior: default_prior.clamp(1e-15, 1.0 - 1e-15),
         }
     }
 
@@ -67,17 +75,23 @@ impl ProbabilisticReasoner {
     pub fn best(&self) -> Option<&Hypothesis> {
         self.hypotheses
             .iter()
-            .max_by(|a, b| a.posterior().partial_cmp(&b.posterior()).unwrap())
+            .max_by(|a, b| a.log_posterior().partial_cmp(&b.log_posterior()).unwrap_or(std::cmp::Ordering::Equal))
     }
 
     pub fn compare(&self, id1: &str, id2: &str) -> f64 {
         let h1 = self.hypotheses.iter().find(|h| h.id == id1);
         let h2 = self.hypotheses.iter().find(|h| h.id == id2);
         match (h1, h2) {
-            (Some(a), Some(b)) => {
-                let p1 = a.posterior().max(1e-15);
-                let p2 = b.posterior().max(1e-15);
-                p1 / p2
+            (Some(_), Some(_)) => {
+                // Proper normalized comparison using softmax across all hypotheses
+                let log_posts: Vec<f64> = self.hypotheses.iter().map(|h| h.log_posterior()).collect();
+                let max_lp = log_posts.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let exp_posts: Vec<f64> = log_posts.iter().map(|lp| (lp - max_lp).exp()).collect();
+                let sum_exp: f64 = exp_posts.iter().sum();
+                let idx1 = self.hypotheses.iter().position(|h| h.id == id1).unwrap_or(0);
+                let idx2 = self.hypotheses.iter().position(|h| h.id == id2).unwrap_or(0);
+                if sum_exp < 1e-300 { return 1.0; }
+                exp_posts[idx1] / exp_posts[idx2]
             }
             _ => 1.0,
         }

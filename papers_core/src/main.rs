@@ -192,9 +192,7 @@ fn main() -> Result<()> {
                 match engine.extract(src) {
                     Ok(d) => d,
                     Err(e) => {
-                        eprintln!("⚠️  Impossible d'extraire la source: {}", e);
-                        eprintln!("   L'évolution continuera sans contexte de papier.");
-                        return Ok(());
+                        return Err(anyhow::anyhow!("Extraction failed: {}. Cannot evolve without source document.", e));
                     }
                 }
             } else {
@@ -248,16 +246,17 @@ fn main() -> Result<()> {
 
         // ── Recherche sémantique ─────────────────────────────
         Commands::Search { query, top_k } => {
-            let corpus = &["papers research AI machine learning"];
-            let mut store = DocStore::new(corpus);
-
             let db_path = Path::new("./doc_store.json");
-            if db_path.exists() {
-                match DocStore::with_persistence(corpus, db_path) {
-                    Ok(s) => store = s,
-                    Err(e) => eprintln!("⚠️  Impossible de charger la base: {}", e),
-                }
-            }
+            let corpus = &["papers research AI machine learning"];
+            let mut store = if db_path.exists() {
+                DocStore::with_persistence(corpus, db_path)
+                    .unwrap_or_else(|e| {
+                        eprintln!("⚠️  Impossible de charger la base: {}", e);
+                        DocStore::new(corpus)
+                    })
+            } else {
+                DocStore::new(corpus)
+            };
 
             println!("🔍 Recherche: \"{}\"", query);
             let results = store.search(&query, top_k);

@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Benchmark probe for measuring code performance and quality.
 pub struct RustProbe {
@@ -21,7 +21,6 @@ impl RustProbe {
     pub fn run_tests(&self) -> Result<ProbeResult, String> {
         let mut test_results = Vec::new();
         let start_time = Instant::now();
-        let mut total_time = 0.0;
 
         // Test 1: Compilation test
         let compilation_result = self.test_compilation();
@@ -111,67 +110,76 @@ impl RustProbe {
         let lines = self.program.lines();
         let mut brace_count = 0;
         let mut paren_count = 0;
-        let mut string_count = 0;
         let mut in_string = false;
-        let mut in_comment = false;
+        let mut in_block_comment = false;
 
         for line in lines {
-            let line = line.trim_start();
-            if line.starts_with("//") {
-                continue; // Skip comments
-            }
-            if let Some(stripped) = line.strip_prefix("#[") {
-                continue; // Skip attribute comments
-            }
+            let mut in_line_comment = false;
+            let chars: Vec<char> = line.chars().collect();
+            let len = chars.len();
 
-            for ch in line.chars() {
+            for i in 0..len {
+                let ch = chars[i];
+
                 if in_string {
+                    if ch == '\\' && i + 1 < len {
+                        continue; // skip escaped char
+                    }
                     if ch == '"' {
                         in_string = false;
                     }
-                } else if ch == '"' {
-                    in_string = true;
-                } else if !in_comment {
-                    match ch {
-                        '{' => brace_count += 1,
-                        '}' => {
-                            if brace_count == 0 {
-                                return false;
-                            }
-                            brace_count -= 1;
-                        }
-                        '(' => paren_count += 1,
-                        ')' => {
-                            if paren_count == 0 {
-                                return false;
-                            }
-                            paren_count -= 1;
-                        }
-                        '/' if line.contains("#") => {}
-                        '/' if let Some(next) = line.chars().nth(1) {
-                            if next == '/' {
-                                break; // Line comment
-                            } else if next == '*' {
-                                in_comment = true;
-                            }
-                        }
-                        '*' if in_comment && line.contains("*/") => {
-                            in_comment = false;
-                        }
-                        _ => {}
+                    continue;
+                }
+
+                if in_line_comment {
+                    continue;
+                }
+
+                if in_block_comment {
+                    if ch == '*' && i + 1 < len && chars[i + 1] == '/' {
+                        in_block_comment = false;
                     }
+                    continue;
+                }
+
+                match ch {
+                    '"' => in_string = true,
+                    '/' if i + 1 < len && chars[i + 1] == '/' => {
+                        in_line_comment = true;
+                    }
+                    '/' if i + 1 < len && chars[i + 1] == '*' => {
+                        in_block_comment = true;
+                    }
+                    '#' if i == 0 => {
+                        // Line starts with # — attribute or cfg, skip rest
+                        in_line_comment = true;
+                    }
+                    '{' => brace_count += 1,
+                    '}' => {
+                        if brace_count == 0 {
+                            return false;
+                        }
+                        brace_count -= 1;
+                    }
+                    '(' => paren_count += 1,
+                    ')' => {
+                        if paren_count == 0 {
+                            return false;
+                        }
+                        paren_count -= 1;
+                    }
+                    _ => {}
                 }
             }
         }
 
-        brace_count == 0 && paren_count == 0 && !in_string
+        brace_count == 0 && paren_count == 0 && !in_string && !in_block_comment
     }
 
     /// Check for required constructs in valid Rust code.
     fn has_required_constructs(&self) -> bool {
         let has_fn = self.program.contains("fn ") || self.program.contains("main()");
         let has_braces = self.program.contains('{') && self.program.contains('}');
-        let has_use = self.program.contains("use ");
 
         has_fn && has_braces
     }
@@ -295,22 +303,18 @@ impl RustProbe {
 
     /// Test code security.
     fn test_security(&self) -> Result<bool, String> {
-        // Check for potential security issues
         let mut issues = Vec::new();
 
-        // Check for unsafe blocks
         if self.program.contains("unsafe {") {
             issues.push("Unsafe block detected".to_string());
         }
 
-        // Check for eval() calls (if present in Rust)
-        if self.program.contains("eval(") {
-            issues.push("eval() call detected".to_string());
+        if self.program.contains("std::process::Command") && self.program.contains(".arg(") {
+            issues.push("Shell command execution detected".to_string());
         }
 
-        // Check for format string issues
-        if self.program.contains("format!(") && !self.program.contains(".escape()") {
-            issues.push("Potential format string injection".to_string());
+        if self.program.contains("std::fs::remove") {
+            issues.push("File deletion detected".to_string());
         }
 
         if !issues.is_empty() {
@@ -326,7 +330,7 @@ impl RustProbe {
         let cyclomatic_complexity = self.calculate_cyclomatic_complexity();
 
         if complexity > 5000.0 {
-            return Err(format!("Code complexity too high: {:.1f}", complexity));
+            return Err(format!("Code complexity too high: {:.1}", complexity));
         }
 
         if cyclomatic_complexity > 50 {
@@ -339,6 +343,7 @@ impl RustProbe {
     /// Calculate cyclomatic complexity.
     fn calculate_cyclomatic_complexity(&self) -> usize {
         let mut complexity = 1; // Base complexity
+        let mut in_match = false;
 
         for line in self.program.lines() {
             let trimmed = line.trim();
@@ -350,22 +355,26 @@ impl RustProbe {
             if trimmed.contains("if ") {
                 complexity += 1;
             }
-            if trimmed.contains("match ") {
-                complexity += trimmed.matches("=>").count();
-            }
             if trimmed.contains("for ") {
                 complexity += 1;
             }
             if trimmed.contains("while ") {
                 complexity += 1;
             }
+            if trimmed.contains("match ") {
+                in_match = true;
+            }
+            if in_match {
+                complexity += trimmed.matches("=>").count();
+                // End match block on a standalone closing brace (not on an arm line)
+                if trimmed == "}" || trimmed.starts_with("} //") {
+                    in_match = false;
+                }
+            }
             if trimmed.contains("&&") {
                 complexity += 1;
             }
             if trimmed.contains("||") {
-                complexity += 1;
-            }
-            if trimmed.contains("?") && trimmed.contains(":") {
                 complexity += 1;
             }
         }

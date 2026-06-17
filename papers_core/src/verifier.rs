@@ -43,22 +43,22 @@ impl Verifier {
             violations.push("Program execution failed.".into());
         }
 
-        let has_function = program.contains("def ");
-        let has_imports = program.contains("import ");
+        let has_function = program.contains("fn ");
+        let has_imports = program.contains("use ");
         if !has_function {
             violations.push("Program does not define any function.".into());
-            suggestions.push("Add a function definition.".into());
+            suggestions.push("Add a function definition (fn).".into());
         }
         if !has_imports {
-            suggestions.push("Consider adding necessary imports.".into());
+            suggestions.push("Consider adding necessary use statements.".into());
         }
 
-        let complexity = program.lines().filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while ")).count();
+        let complexity = program.lines().filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while ") || l.contains("match ")).count();
         if complexity > 50 {
             suggestions.push(format!("Program is very complex ({} branches). Consider simplifying.", complexity));
         }
 
-        let non_deterministic = ["random.", "np.random", "time.time", "uuid."]
+        let non_deterministic = ["rand::", "thread_rng", "SystemTime", "random()"]
             .iter()
             .any(|nd| program.contains(nd));
         if non_deterministic {

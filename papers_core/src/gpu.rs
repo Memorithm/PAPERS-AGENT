@@ -204,7 +204,7 @@ impl GpuDetector {
                             id: self.devices.len(),
                             name: Self::get_device_name(&path),
                             memory_total: Self::get_gpu_memory(&path),
-                            memory_available: Self::get_gpu_memory(&path),
+                            memory_available: 0, // Cannot determine from PCI
                             compute_capability: String::new(),
                             cuda_version: String::new(),
                             driver_version: String::new(),
@@ -228,15 +228,27 @@ impl GpuDetector {
             let class = u32::from_str_radix(class_content.trim(), 16).unwrap_or(0);
             let device_class = (class >> 8) & 0xff;
 
-            // Check for NVIDIA or AMD GPU classes
             if device_class == 0x03 || device_class == 0x04 {
-                // Display controller or Multimedia controller
-                // Try to get more specific info
                 let subsystem_file = pci_path.join("subsystem_vendor");
                 if let Ok(subsystem_content) = std::fs::read_to_string(subsystem_file) {
                     let subsystem = u32::from_str_radix(subsystem_content.trim(), 16).unwrap_or(0);
-                    if subsystem == 0x10de {
-                        return "NVIDIA GPU".to_string();
+                    match subsystem {
+                        0x10de => return "NVIDIA GPU".to_string(),
+                        0x1002 => return "AMD GPU".to_string(),
+                        0x8086 => return "Intel GPU".to_string(),
+                        _ => {}
+                    }
+                }
+
+                // Fallback: check vendor file directly
+                let vendor_file = pci_path.join("vendor");
+                if let Ok(vendor_content) = std::fs::read_to_string(vendor_file) {
+                    let vendor = u32::from_str_radix(vendor_content.trim(), 16).unwrap_or(0);
+                    match vendor {
+                        0x10de => return "NVIDIA GPU".to_string(),
+                        0x1002 => return "AMD GPU".to_string(),
+                        0x8086 => return "Intel GPU".to_string(),
+                        _ => {}
                     }
                 }
 
@@ -296,7 +308,7 @@ impl GpuDetector {
                             id: self.devices.len(),
                             name: Self::get_device_name(&path),
                             memory_total: Self::get_gpu_memory(&path),
-                            memory_available: Self::get_gpu_memory(&path),
+                            memory_available: 0, // Cannot determine from PCI
                             compute_capability: String::new(),
                             cuda_version: String::new(),
                             driver_version: String::new(),
@@ -313,9 +325,27 @@ impl GpuDetector {
         Ok(())
     }
 
-    /// Detect CUDA version from path (no-op — version stored per-device).
+    /// Detect CUDA version from nvcc --version output.
     fn detect_cuda_version(&mut self, _cuda_path: &str) -> Result<(), String> {
-        // Version is read from nvidia-smi output per device
+        if let Ok(output) = Command::new("nvcc").arg("--version").output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Look for "Cuda compilation tools, release X.Y, Vx.y.z"
+                for line in output_str.lines() {
+                    if line.contains("release") {
+                        if let Some(release_part) = line.split("release ").nth(1) {
+                            if let Some(version) = release_part.split(',').next() {
+                                for device in &mut self.devices {
+                                    if device.cuda_version.is_empty() {
+                                        device.cuda_version = version.trim().to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -447,20 +477,20 @@ pub struct GpuDetectorFactory;
 
 impl GpuDetectorFactory {
     /// Create a new GPU detector with NVIDIA-only detection.
-    pub fn nvidia_only() -> GpuDetector {
-        GpuDetector::new().expect("Failed to create NVIDIA-only GPU detector")
+    pub fn nvidia_only() -> Result<GpuDetector, String> {
+        GpuDetector::new()
     }
 
     /// Create a new GPU detector with automatic detection.
-    pub fn auto() -> GpuDetector {
-        GpuDetector::new().expect("Failed to create auto GPU detector")
+    pub fn auto() -> Result<GpuDetector, String> {
+        GpuDetector::new()
     }
 
     /// Create a new GPU detector for CPU-only systems.
-    pub fn cpu_only() -> GpuDetector {
-        let mut detector = GpuDetector::new().expect("Failed to create CPU-only GPU detector");
+    pub fn cpu_only() -> Result<GpuDetector, String> {
+        let mut detector = GpuDetector::new()?;
         detector.cuda_available = false;
-        detector
+        Ok(detector)
     }
 }
 

@@ -128,7 +128,14 @@ fn extract_code_blocks(code: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     for line in code.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("def ") || trimmed.starts_with("class ") {
+        if trimmed.starts_with("fn ")
+            || trimmed.starts_with("struct ")
+            || trimmed.starts_with("trait ")
+            || trimmed.starts_with("impl ")
+            || trimmed.starts_with("enum ")
+            || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("pub struct ")
+        {
             blocks.push(trimmed.chars().take(120).collect());
         }
     }

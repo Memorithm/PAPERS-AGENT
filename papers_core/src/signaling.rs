@@ -138,7 +138,7 @@ impl Signal {
     /// Wait until the signal is set.
     pub fn wait(&self) {
         let mut guard = self.mutex.lock();
-        if !*guard {
+        while !*guard {
             self.condvar.wait(&mut guard);
         }
     }
@@ -149,8 +149,19 @@ impl Signal {
         if *guard {
             return true;
         }
-        let result = self.condvar.wait_for(&mut guard, timeout);
-        *guard || !result.timed_out()
+        let mut remaining = timeout;
+        loop {
+            let start = std::time::Instant::now();
+            let result = self.condvar.wait_for(&mut guard, remaining);
+            if *guard {
+                return true;
+            }
+            let elapsed = start.elapsed();
+            if result.timed_out() || elapsed >= remaining {
+                return false;
+            }
+            remaining = remaining.saturating_sub(elapsed);
+        }
     }
 
     /// Set the signal and wake all waiters.

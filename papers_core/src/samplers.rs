@@ -87,7 +87,6 @@ impl Sampler for UCB1Sampler {
 pub struct IslandSampler {
     pub num_islands: usize,
     pub exploration_ratio: f64,
-    pub exploitation_ratio: f64,
 }
 
 impl IslandSampler {
@@ -95,7 +94,6 @@ impl IslandSampler {
         Self {
             num_islands,
             exploration_ratio: 0.2,
-            exploitation_ratio: 0.3,
         }
     }
 }
@@ -131,6 +129,9 @@ pub fn create_sampler(name: &str) -> Box<dyn Sampler> {
         "random" => Box::new(RandomSampler),
         "ucb1" => Box::new(UCB1Sampler { c: 1.414 }),
         "island" | "map_elites" => Box::new(IslandSampler::new(5)),
-        _ => Box::new(GreedySampler),
+        other => {
+            eprintln!("⚠️  Sampler inconnu '{}', fallback vers greedy", other);
+            Box::new(GreedySampler)
+        }
     }
 }

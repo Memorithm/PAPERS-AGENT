@@ -34,21 +34,22 @@ impl ArchSearch {
         &mut self,
         generations: usize,
         pop_size: usize,
-    ) -> Vec<DiscoveredArchitecture> {
+    ) -> Result<Vec<DiscoveredArchitecture>, String> {
         let mut search = NasSearch::new(self.config.clone());
-        let results = search.evolve(generations, pop_size).unwrap_or_default();
-        results.into_iter().map(|arch| {
+        let results = search.evolve(generations, pop_size)
+            .map_err(|e| format!("NAS search failed: {}", e))?;
+        Ok(results.into_iter().map(|arch| {
             DiscoveredArchitecture {
                 layers: arch.layers.iter().map(|l| format!("{}", l)).collect(),
                 fitness: arch.fitness,
                 params_m: arch.params_m,
                 flops: arch.flops,
             }
-        }).collect()
+        }).collect())
     }
 
     /// Quick single-generation search
-    pub fn explore(&mut self, n: usize) -> Vec<DiscoveredArchitecture> {
+    pub fn explore(&mut self, n: usize) -> Result<Vec<DiscoveredArchitecture>, String> {
         self.evolve(1, n)
     }
 }

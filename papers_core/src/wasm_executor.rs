@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -35,10 +36,11 @@ pub struct WasmResult {
 ///
 /// Provides safe execution of generated WASM modules with:
 /// - Fuel-based instruction limiting
-/// - Epoch-based interruption (timeout)
+/// - Epoch-based interruption (timeout) via background ticker
 pub struct WasmExecutor {
     engine: Engine,
     config: WasmConfig,
+    _ticker: Arc<()>,
 }
 
 impl WasmExecutor {
@@ -50,7 +52,22 @@ impl WasmExecutor {
 
         let engine = Engine::new(&engine_config)?;
 
-        Ok(Self { engine, config })
+        // Spawn background thread to increment epoch every 10ms
+        // This gives ~100ms resolution for timeouts
+        let engine_handle = engine.clone();
+        let ticker = Arc::new(());
+        let ticker_clone = ticker.clone();
+        std::thread::Builder::new()
+            .name("wasm-epoch-ticker".into())
+            .spawn(move || {
+                // Keep ticking while the Arc exists
+                while Arc::strong_count(&ticker_clone) > 1 {
+                    engine_handle.increment_epoch();
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            })?;
+
+        Ok(Self { engine, config, _ticker: ticker })
     }
 
     /// Execute a WASM binary.
@@ -70,6 +87,9 @@ impl WasmExecutor {
             });
         }
         store.epoch_deadline_trap();
+        // Set epoch deadline: timeout / 10ms per tick = number of ticks
+        let ticks = (self.config.timeout.as_millis() / 10).max(1) as u64;
+        store.set_epoch_deadline(ticks);
 
         let module = match Module::new(&self.engine, wasm_bytes) {
             Ok(m) => m,
