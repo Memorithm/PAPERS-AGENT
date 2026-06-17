@@ -66,7 +66,7 @@ impl Analyzer {
             .replace("{program_summary}", &program.chars().take(2000).collect::<String>())
             .replace("{score}", &result.score.to_string())
             .replace("{success}", &result.success.to_string())
-            .replace("{metrics}", &metrics_str[..metrics_str.len().min(1500)])
+            .replace("{metrics}", &metrics_str.chars().take(1500).collect::<String>())
             .replace("{runtime_seconds}", &result.runtime_secs.to_string());
 
         match llm.generate_json(&prompt, Some(ANALYZER_SYSTEM)) {

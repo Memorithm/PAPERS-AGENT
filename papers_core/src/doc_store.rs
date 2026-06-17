@@ -249,7 +249,9 @@ impl DocStore {
 
     fn maybe_persist(&self) {
         if self.persist_path.is_some() {
-            let _ = self.persist();
+            if let Err(e) = self.persist() {
+                log::warn!("Failed to persist DocStore: {}", e);
+            }
         }
     }
 }

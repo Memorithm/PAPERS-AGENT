@@ -23,6 +23,8 @@ pub mod reporting;
 pub mod analysis;
 pub mod llm_analyzer;
 pub mod paper_registry;
+pub mod wasm_executor;
+pub mod embedding_onnx;
 
 pub use models::*;
 pub use samplers::Sampler;

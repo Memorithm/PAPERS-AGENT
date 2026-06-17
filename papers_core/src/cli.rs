@@ -140,6 +140,24 @@ pub enum Commands {
         #[arg(short, long)]
         file: String,
     },
+
+    /// Mode interactif (REPL)
+    Interactive {
+        /// Modèle LLM
+        #[arg(long, default_value = "gemma4:e2b")]
+        model: String,
+    },
+
+    /// Exporter un rapport en PDF
+    Pdf {
+        /// Fichier JSON d'analyse
+        #[arg(short, long)]
+        input: String,
+
+        /// Fichier PDF de sortie
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 pub fn parse() -> Cli {

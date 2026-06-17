@@ -105,11 +105,10 @@ impl PatternInduction {
 
     fn extract_convergent(&mut self, history: &[Node]) {
         let scores: Vec<f64> = history.iter().map(|n| n.score).collect();
-        for w in scores.windows(3) {
+        for (i, w) in scores.windows(3).enumerate() {
             if w[0] <= w[1] && w[1] <= w[2] {
-                let ids: Vec<usize> = history
+                let ids: Vec<usize> = history[i..i + 3]
                     .iter()
-                    .take(3)
                     .filter_map(|n| n.id)
                     .collect();
                 self.patterns.push(Pattern {

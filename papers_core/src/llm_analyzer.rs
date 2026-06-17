@@ -298,7 +298,7 @@ impl<'a> LLmAnalyzer<'a> {
     /// Analyse les contributions scientifiques.
     pub fn analyze_contributions(&self, report: &AnalysisReport) -> Vec<String> {
         let text = prepare_text(&report.document);
-        let prompt = CONTRIBUTIONS_PROMPT.replace("{text}", &text[..text.len().min(8000)]);
+        let prompt = CONTRIBUTIONS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         let contributions = self.get_string_array(&result, "contributions");
@@ -324,7 +324,7 @@ impl<'a> LLmAnalyzer<'a> {
     /// Analyse système (VRAM, RAM, etc.).
     pub fn analyze_system(&self, report: &AnalysisReport) -> SystemRequirements {
         let text = prepare_text(&report.document);
-        let prompt = SYSTEM_ANALYSIS_PROMPT.replace("{text}", &text[..text.len().min(8000)]);
+        let prompt = SYSTEM_ANALYSIS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         if result.is_null() {
@@ -344,7 +344,7 @@ impl<'a> LLmAnalyzer<'a> {
     /// Cartographie architecturale.
     pub fn analyze_architecture(&self, report: &AnalysisReport) -> crate::analysis::ArchitecturalMapping {
         let text = prepare_text(&report.document);
-        let prompt = ARCHITECTURE_PROMPT.replace("{text}", &text[..text.len().min(8000)]);
+        let prompt = ARCHITECTURE_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         if result.is_null() && self.fallback {
@@ -376,7 +376,7 @@ impl<'a> LLmAnalyzer<'a> {
     /// Analyse des risques.
     pub fn analyze_risks(&self, report: &AnalysisReport) -> Vec<Risk> {
         let text = prepare_text(&report.document);
-        let prompt = RISKS_PROMPT.replace("{text}", &text[..text.len().min(8000)]);
+        let prompt = RISKS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         // Parse le tableau [{level, description, mitigation}]
@@ -406,7 +406,7 @@ impl<'a> LLmAnalyzer<'a> {
 
     /// Analyse mathématique.
     pub fn analyze_mathematical(&self, text: &str) -> MathematicalAnalysis {
-        let prompt = MATHEMATICAL_PROMPT.replace("{text}", &text[..text.len().min(8000)]);
+        let prompt = MATHEMATICAL_PROMPT.replace("{text}", &safe_truncate(text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         if result.is_null() {
@@ -465,11 +465,11 @@ impl<'a> LLmAnalyzer<'a> {
 
     /// Analyse approfondie multi-passes.
     pub fn analyze_deep(&self, title: &str, abs: &str, text: &str) -> serde_json::Value {
-        let full_text = if text.len() > 12000 { &text[..12000] } else { text };
+        let full_text = if text.len() > 12000 { safe_truncate(text, 12000) } else { text.to_string() };
         let prompt = DEEP_ANALYSIS_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
-            .replace("{text}", full_text);
+            .replace("{text}", &full_text);
         self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST)
     }
 }
@@ -542,4 +542,9 @@ fn normalize_strings(val: Option<&serde_json::Value>) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Safe UTF-8-aware string truncation. Never panics on multi-byte boundaries.
+fn safe_truncate(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
 }

@@ -98,20 +98,28 @@ impl Database {
         self.nodes.get(&id)
     }
 
-    pub fn sample(&self, n: usize) -> Vec<Node> {
+    pub fn sample(&mut self, n: usize) -> Vec<Node> {
         let nodes: Vec<Node> = self.nodes.values().cloned().collect();
-        self.sampler.sample(&nodes, n)
+        let sampled = self.sampler.sample(&nodes, n);
+        for node in &sampled {
+            if let Some(id) = node.id {
+                if let Some(stored) = self.nodes.get_mut(&id) {
+                    stored.visit_count += 1;
+                }
+            }
+        }
+        sampled
     }
 
     pub fn best(&self) -> Option<&Node> {
         self.nodes
             .values()
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.score.total_cmp(&b.score))
     }
 
     pub fn top_k(&self, k: usize) -> Vec<&Node> {
         let mut nodes: Vec<&Node> = self.nodes.values().collect();
-        nodes.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        nodes.sort_by(|a, b| b.score.total_cmp(&a.score));
         nodes.into_iter().take(k).collect()
     }
 
@@ -149,7 +157,7 @@ impl Database {
             .iter()
             .map(|(id, node)| (*id, node.score))
             .collect();
-        entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        entries.sort_by(|a, b| b.1.total_cmp(&a.1));
         let keep_ids: std::collections::HashSet<usize> =
             entries.into_iter().take(keep_top).map(|(id, _)| id).collect();
         self.nodes.retain(|id, _| keep_ids.contains(id));

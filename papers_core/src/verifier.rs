@@ -55,7 +55,7 @@ impl Verifier {
 
         let complexity = program.lines().filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while ")).count();
         if complexity > 50 {
-            suggestions.push("Program is very complex ({} branches). Consider simplifying.".into());
+            suggestions.push(format!("Program is very complex ({} branches). Consider simplifying.", complexity));
         }
 
         let non_deterministic = ["random.", "np.random", "time.time", "uuid."]

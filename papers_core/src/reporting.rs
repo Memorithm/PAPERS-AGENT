@@ -119,6 +119,74 @@ impl ReportGenerator {
             md.push('\n');
         }
 
+        // Mapping architectural
+        if report.architectural_mapping != serde_json::Value::Null {
+            md.push_str("## Cartographie Architecturale\n\n");
+            if let Some(obj) = report.architectural_mapping.as_object() {
+                for (pillar, keywords) in obj {
+                    if let Some(arr) = keywords.as_array() {
+                        if !arr.is_empty() {
+                            md.push_str(&format!("### {}\n", pillar));
+                            for kw in arr {
+                                if let Some(s) = kw.as_str() {
+                                    md.push_str(&format!("- {}\n", s));
+                                }
+                            }
+                            md.push('\n');
+                        }
+                    }
+                }
+            }
+        }
+
+        // Analyse profonde
+        if report.deep_analysis != serde_json::Value::Null {
+            md.push_str("## Analyse Approfondie\n\n");
+            if let Some(s) = report.deep_analysis.as_str() {
+                md.push_str(s);
+                md.push_str("\n\n");
+            } else if let Some(obj) = report.deep_analysis.as_object() {
+                if let Some(summary) = obj.get("summary").and_then(|v| v.as_str()) {
+                    md.push_str(summary);
+                    md.push_str("\n\n");
+                }
+            }
+        }
+
+        // Plan d'expérience
+        if report.experiment_plan != serde_json::Value::Null {
+            md.push_str("## Plan d'Expérience\n\n");
+            if let Some(s) = report.experiment_plan.as_str() {
+                md.push_str(s);
+                md.push_str("\n\n");
+            } else if let Some(obj) = report.experiment_plan.as_object() {
+                if let Some(steps) = obj.get("steps").and_then(|v| v.as_array()) {
+                    for (i, step) in steps.iter().enumerate() {
+                        if let Some(s) = step.as_str() {
+                            md.push_str(&format!("{}. {}\n", i + 1, s));
+                        }
+                    }
+                    md.push('\n');
+                }
+            }
+        }
+
+        // Pseudo-code
+        if report.pseudo_code != serde_json::Value::Null {
+            md.push_str("## Pseudo-code\n\n");
+            if let Some(s) = report.pseudo_code.as_str() {
+                md.push_str("```text\n");
+                md.push_str(s);
+                md.push_str("\n```\n\n");
+            } else if let Some(obj) = report.pseudo_code.as_object() {
+                if let Some(code) = obj.get("code").and_then(|v| v.as_str()) {
+                    md.push_str("```text\n");
+                    md.push_str(code);
+                    md.push_str("\n```\n\n");
+                }
+            }
+        }
+
         // Recommandation
         md.push_str("## Recommandation\n\n");
         md.push_str(&format!("**{}**\n\n", report.recommendation.label()));

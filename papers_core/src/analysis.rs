@@ -97,53 +97,320 @@ pub struct AlgorithmAnalysis {
 pub struct AlgorithmAnalyzer;
 
 impl AlgorithmAnalyzer {
-    pub fn analyze(_text: &str) -> AlgorithmAnalysis {
-        let steps = vec![
-            AlgorithmStep {
-                name: "Entrée".into(),
-                description: "Capturer les entrées du système".into(),
-            },
-            AlgorithmStep {
-                name: "Prétraitement".into(),
-                description: "Normaliser et préparer les données".into(),
-            },
-            AlgorithmStep {
-                name: "Calcul principal".into(),
-                description: "Appliquer la transformation principale".into(),
-            },
-            AlgorithmStep {
-                name: "Mise à jour état".into(),
-                description: "Mettre à jour les états internes".into(),
-            },
-            AlgorithmStep {
-                name: "Sortie".into(),
-                description: "Produire le résultat".into(),
-            },
-        ];
+    pub fn analyze(text: &str) -> AlgorithmAnalysis {
+        let steps = Self::extract_steps(text);
+        let pseudocode = Self::extract_pseudocode(text);
+        let overall_complexity = Self::extract_complexity(text);
+        let memory_cost = Self::extract_memory_cost(text);
+
         AlgorithmAnalysis {
             steps,
-            pseudocode: "\nFONCTION ProcessPaper(input):\n    état = InitialiserÉtat()\n    données = Prétraiter(input)\n    POUR CHAQUE étape:\n        état = MettreÀJour(état, données)\n    RETOURNER ProduireSortie(état)\n".into(),
-            overall_complexity: "INFORMATION NON DISPONIBLE DANS LE PAPIER".into(),
-            memory_cost: "INFORMATION NON DISPONIBLE DANS LE PAPIER".into(),
+            pseudocode,
+            overall_complexity,
+            memory_cost,
         }
+    }
+
+    fn extract_steps(text: &str) -> Vec<AlgorithmStep> {
+        let lower = text.to_lowercase();
+        let mut steps = Vec::new();
+
+        let step_patterns = [
+            (r"(?:first|initially|start)\b.{20,200}?(?:\.|;)", "Initialisation"),
+            (r"(?:then|next|subsequently|after\s+that)\b.{20,200}?(?:\.|;)", "Étape principale"),
+            (r"(?:finally|lastly|in\s+the\s+end)\b.{20,200}?(?:\.|;)", "Finalisation"),
+            (r"(?:step\s+\d+|phase\s+\d+|stage\s+\d+)\s*[:\-–—]?\s*.{20,200}?(?:\.|;)", "Étape"),
+            (r"(?:input|preprocess|normalize|tokenize)\b.{20,200}?(?:\.|;)", "Prétraitement"),
+            (r"(?:compute|calculate|estimate|evaluate|optimize)\b.{20,200}?(?:\.|;)", "Calcul"),
+            (r"(?:output|return|produce|generate|emit)\b.{20,200}?(?:\.|;)", "Sortie"),
+            (r"(?:update|iterate|loop|repeat|converge)\b.{20,200}?(?:\.|;)", "Mise à jour"),
+        ];
+
+        for (pat, label) in &step_patterns {
+            if let Ok(re) = regex::Regex::new(pat) {
+                for cap in re.find_iter(&lower).take(2) {
+                    let desc = cap.as_str().trim().chars().take(150).collect::<String>();
+                    steps.push(AlgorithmStep {
+                        name: label.to_string(),
+                        description: desc,
+                    });
+                }
+            }
+        }
+
+        // If no steps found, provide generic pipeline
+        if steps.is_empty() {
+            steps = vec![
+                AlgorithmStep {
+                    name: "Entrée".into(),
+                    description: "Capturer et normaliser les données d'entrée".into(),
+                },
+                AlgorithmStep {
+                    name: "Prétraitement".into(),
+                    description: "Transformer les données pour le calcul".into(),
+                },
+                AlgorithmStep {
+                    name: "Traitement principal".into(),
+                    description: "Appliquer l'algorithme ou le modèle".into(),
+                },
+                AlgorithmStep {
+                    name: "Post-traitement".into(),
+                    description: "Interpréter les résultats".into(),
+                },
+                AlgorithmStep {
+                    name: "Sortie".into(),
+                    description: "Produire le résultat final".into(),
+                },
+            ];
+        }
+
+        steps
+    }
+
+    fn extract_pseudocode(text: &str) -> String {
+        // Look for code blocks or algorithmic descriptions
+        if let Ok(re_code) = regex::Regex::new(r"```[\s\S]*?```") {
+            if let Some(cap) = re_code.find(text) {
+                return cap.as_str().to_string();
+            }
+        }
+
+        // Extract algorithmic phrases
+        let lower = text.to_lowercase();
+        let algo_kw = ["algorithm", "pseudocode", "procédure", "procedure", "function"];
+        let mut lines = Vec::new();
+
+        if let Ok(re_sent) = regex::Regex::new(r"[.!?]\s+") {
+            let mut last = 0;
+            let mut splits: Vec<usize> = re_sent.find_iter(text).map(|m| m.start()).collect();
+            splits.push(text.len());
+            for end in splits {
+                let sentence = &text[last..end];
+                let s_lower = &lower[last..end];
+                if algo_kw.iter().any(|k| s_lower.contains(k)) {
+                    lines.push(format!("  // {}", sentence.trim()));
+                    if lines.len() >= 6 {
+                        break;
+                    }
+                }
+                last = end;
+            }
+        }
+
+        if lines.is_empty() {
+            return "\nFONCTION ProcessPaper(input):\n    état = InitialiserÉtat()\n    données = Prétraiter(input)\n    résultat = Calculer(état, données)\n    RETOURNER résultat\n".into();
+        }
+
+        format!("\nFONCTION Algorithme():\n{}\n", lines.join("\n"))
+    }
+
+    fn extract_complexity(text: &str) -> String {
+        let lower = text.to_lowercase();
+
+        // Search for Big-O notation
+        let patterns = [
+            r"O\(n\^?\d*\)",
+            r"O\(n\s*log\s*n\)",
+            r"O\(n\)",
+            r"O\(1\)",
+            r"O\(log\s*n\)",
+            r"O\(2\^n\)",
+            r"O\(n!\)",
+            r"\bcomplexit[ée]\s+(?:en\s+)?(?:temporelle|spatiale|mémoire)?\s*[:\-]?\s*[OΘΩ][\(\{][^\)\}]+[\)\}]",
+            r"\bruntime\b.{0,30}?[OΘΩ][\(\{][^\)\}]+[\)\}]",
+            r"\btime\s+complexity\b.{0,30}?:?.{0,30}?[OΘΩ]",
+        ];
+
+        for pat in &patterns {
+            if let Ok(re) = regex::Regex::new(pat) {
+                if let Some(cap) = re.find(&lower) {
+                    return cap.as_str().to_string();
+                }
+            }
+        }
+
+        "INFORMATION NON DISPONIBLE DANS LE PAPIER".into()
+    }
+
+    fn extract_memory_cost(text: &str) -> String {
+        let lower = text.to_lowercase();
+
+        let patterns = [
+            r"O\(n\)\s*(?:memory|space|espace|mémoire)",
+            r"O\(n\^?\d*\)\s*(?:memory|space|espace|mémoire)",
+            r"(?:memory|space|espace|mémoire)\s+(?:complexity|cost|usage|footprint)\b.{0,50}?[OΘΩ]",
+            r"\bstorage\b.{0,20}?requirement",
+            r"\bmemory\s+cost\b.{0,30}",
+            r"\b(?:MB|GB)\s*(?:of\s+)?(?:RAM|memory|VRAM)",
+        ];
+
+        for pat in &patterns {
+            if let Ok(re) = regex::Regex::new(pat) {
+                if let Some(cap) = re.find(&lower) {
+                    return cap.as_str().to_string();
+                }
+            }
+        }
+
+        "INFORMATION NON DISPONIBLE DANS LE PAPIER".into()
     }
 }
 
 // ---------------------------------------------------------------------------
-// Analyse système (heuristique – retourne des valeurs par défaut)
+// Analyse système (heuristique basée sur #params et architecture)
 // ---------------------------------------------------------------------------
 
 pub struct SystemAnalyzer;
 
 impl SystemAnalyzer {
-    pub fn analyze(_text: &str) -> SystemRequirements {
+    pub fn analyze(text: &str) -> SystemRequirements {
+        let text_lower = text.to_lowercase();
+
+        // Estimation du nombre de paramètres
+        let param_count = Self::estimate_param_count(&text_lower);
+
+        // VRAM estimation (basée sur #params, précision, batch size)
+        let vram = Self::estimate_vram(param_count, &text_lower);
+
+        // RAM estimation (pour inference, typiquement 2-4x le modèle)
+        let ram = Self::estimate_ram(param_count, &text_lower);
+
+        // Disk (taille du modèle sur disque)
+        let disk = Self::estimate_disk(param_count, &text_lower);
+
+        // Latence (estimation selon architecture)
+        let latency = Self::estimate_latency(&text_lower);
+
+        // Throughput
+        let throughput = Self::estimate_throughput(&text_lower);
+
+        // Scalabilité
+        let scalability = Self::estimate_scalability(&text_lower);
+
         SystemRequirements {
-            vram: None,
-            ram: None,
-            disk: None,
-            latency: None,
-            throughput: None,
-            scalability: None,
+            vram,
+            ram,
+            disk,
+            latency,
+            throughput,
+            scalability,
+        }
+    }
+
+    fn estimate_param_count(text: &str) -> Option<u64> {
+        // Cherche des patterns comme "7B", "13B", "175B", "1.5B", "110M"
+        let patterns = [
+            (r"(\d+\.?\d*)\s*b\b", 1_000_000_000u64),
+            (r"(\d+\.?\d*)\s*bn\b", 1_000_000_000u64),
+            (r"(\d+\.?\d*)\s*m\b", 1_000_000u64),
+            (r"(\d+\.?\d*)\s*millions?\b", 1_000_000u64),
+            (r"(\d+\.?\d*)\s*billions?\b", 1_000_000_000u64),
+            (r"(\d+\.?\d*)\s*trillions?\b", 1_000_000_000_000u64),
+        ];
+
+        for (pat, multiplier) in &patterns {
+            if let Ok(re) = regex::Regex::new(pat) {
+                if let Some(caps) = re.captures(text) {
+                    if let Some(m) = caps.get(1) {
+                        if let Ok(val) = m.as_str().parse::<f64>() {
+                            return Some((val * *multiplier as f64) as u64);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn estimate_vram(param_count: Option<u64>, text: &str) -> Option<String> {
+        let params = param_count?;
+
+        // fp32: 4 bytes/param, fp16: 2 bytes/param, int8: 1 byte/param
+        let precision = if text.contains("int4") || text.contains("4-bit") || text.contains("qlora") {
+            0.5
+        } else if text.contains("int8") || text.contains("8-bit") {
+            1.0
+        } else if text.contains("fp16") || text.contains("half") || text.contains("float16") {
+            2.0
+        } else {
+            4.0 // fp32 default
+        };
+
+        let bytes = params as f64 * precision;
+        let gb = bytes / (1024.0 * 1024.0 * 1024.0);
+
+        // Add ~20% overhead for activations/kv-cache
+        let total = gb * 1.2;
+
+        Some(format!("{:.1} GB", total))
+    }
+
+    fn estimate_ram(param_count: Option<u64>, text: &str) -> Option<String> {
+        let params = param_count?;
+
+        // Inference typically needs 2-4x model size for activations
+        let multiplier = if text.contains("training") || text.contains("fine-tun") {
+            8.0
+        } else {
+            3.0
+        };
+
+        let bytes = params as f64 * 4.0 * multiplier; // fp32
+        let gb = bytes / (1024.0 * 1024.0 * 1024.0);
+
+        Some(format!("{:.1} GB", gb))
+    }
+
+    fn estimate_disk(param_count: Option<u64>, text: &str) -> Option<String> {
+        let params = param_count?;
+
+        let bytes_per_param = if text.contains("int4") || text.contains("4-bit") {
+            0.5
+        } else if text.contains("int8") || text.contains("8-bit") {
+            1.0
+        } else if text.contains("fp16") || text.contains("half") {
+            2.0
+        } else {
+            4.0
+        };
+
+        let bytes = params as f64 * bytes_per_param;
+        let gb = bytes / (1024.0 * 1024.0 * 1024.0);
+
+        Some(format!("{:.1} GB", gb))
+    }
+
+    fn estimate_latency(text: &str) -> Option<String> {
+        if text.contains("transformer") || text.contains("attention") {
+            Some("10-100 ms (GPU), 100-1000 ms (CPU)".into())
+        } else if text.contains("cnn") || text.contains("convolution") {
+            Some("1-10 ms (GPU)".into())
+        } else if text.contains("rnn") || text.contains("lstm") || text.contains("gru") {
+            Some("50-500 ms (sequential)".into())
+        } else {
+            None
+        }
+    }
+
+    fn estimate_throughput(text: &str) -> Option<String> {
+        if text.contains("transformer") || text.contains("llm") {
+            Some("50-500 tokens/s (GPU, batch=1)".into())
+        } else if text.contains("cnn") {
+            Some("100-1000 images/s (GPU)".into())
+        } else {
+            None
+        }
+    }
+
+    fn estimate_scalability(text: &str) -> Option<String> {
+        if text.contains("distributed") || text.contains("parallel") || text.contains("multi-gpu") {
+            Some("Good with data/model parallelism".into())
+        } else if text.contains("transformer") || text.contains("attention") {
+            Some("Moderate, requires careful memory management".into())
+        } else if text.contains("cnn") {
+            Some("Good with batch parallelism".into())
+        } else {
+            None
         }
     }
 }

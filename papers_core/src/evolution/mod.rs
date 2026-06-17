@@ -30,7 +30,8 @@ impl EvolutionLoop {
             database: Database::new(&sampler_name),
             cognition: CognitionStore::new(),
             researcher: Researcher::new(&task),
-            engineer: Engineer::new(3600),
+            engineer: Engineer::new(3600)
+                .with_wasm(crate::wasm_executor::WasmConfig::default()),
         }
     }
 
@@ -57,19 +58,25 @@ impl EvolutionLoop {
                 .first()
                 .map(|n| n.analysis.clone())
                 .unwrap_or_default();
-            let cognition_items = self.cognition.retrieve(&context_query, self.config.n_cognition);
+            let cognition_owned: Vec<_> = self.cognition.retrieve(&context_query, self.config.n_cognition)
+                .into_iter().cloned().collect();
+            let cognition_refs: Vec<&CognitionItem> = cognition_owned.iter().collect();
 
             for i in 0..self.config.n_candidates_per_round {
-                let parent = if i > 0 { self.database.best() } else { None };
-                let parent_program = parent.map(|n| n.code.as_str()).unwrap_or("");
+                let parent_program = if i > 0 {
+                    self.database.best().map(|n| n.code.clone()).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let has_parent = !parent_program.is_empty();
 
                 let output = self.researcher.generate(
                     llm,
                     task_description,
                     &context_nodes,
-                    &cognition_items,
-                    parent_program,
-                    parent.is_some(),
+                    &cognition_refs,
+                    &parent_program,
+                    has_parent,
                 );
 
                 let result = self.engineer.execute(&output.program, None::<fn(&str) -> EngineerOutput>);
@@ -99,6 +106,29 @@ impl EvolutionLoop {
                     rounds_without_improvement = 0;
                 } else {
                     rounds_without_improvement += 1;
+                }
+
+                // Run Analyzer on each candidate to generate insights
+                let motivation = output.motivation.clone();
+                let program = output.program.clone();
+                let cognition_update = {
+                    let analyzer = Analyzer::new(&self.config.sampling_policy);
+                    let analysis = analyzer.analyze(
+                        llm,
+                        &motivation,
+                        &program,
+                        &result,
+                    );
+                    analysis.cognition_update
+                };
+
+                // Store analysis insights in cognition for future rounds
+                if !cognition_update.is_empty() {
+                    self.cognition.add(crate::models::CognitionItem::new(
+                        cognition_update,
+                        "analyzer".into(),
+                        vec!["insight".into(), format!("round-{}", round)],
+                    ));
                 }
             }
 
