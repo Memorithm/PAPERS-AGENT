@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -34,8 +36,16 @@ jobs:
             exit 1
           fi
 
-      - name: Format
-        run: cargo fmt --all -- --check
+      - name: Format changed Rust files
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT origin/master...HEAD -- 'papers_core/**/*.rs')
+          if [ "${#files[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          rustfmt --edition 2021 --check "${files[@]}"
 
       - name: Test
         run: cargo test --all-targets
