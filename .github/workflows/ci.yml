@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - feat/scientific-contracts-ccos-rsi
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: papers_core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Reject machine-local dependency paths
+        run: |
+          if grep --line-number -E 'path[[:space:]]*=[[:space:]]*"/tmp/scirust' Cargo.toml; then
+            echo 'machine-local /tmp/scirust Cargo dependency detected' >&2
+            exit 1
+          fi
+
+      - name: Format changed Rust files
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT origin/master...HEAD -- 'papers_core/**/*.rs')
+          if [ "${#files[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          for file in "${files[@]}"; do
+            echo "Checking $file"
+            rustfmt --edition 2021 --check < "$file"
+          done
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings

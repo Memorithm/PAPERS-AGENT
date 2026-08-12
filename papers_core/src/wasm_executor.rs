@@ -22,7 +22,8 @@ impl Default for WasmConfig {
     }
 }
 
-/// Result of WASM execution.
+/// Result of genuine WASM execution, or an announced refusal when the input has
+/// not actually been compiled to WASM.
 #[derive(Debug, Clone)]
 pub struct WasmResult {
     pub success: bool,
@@ -34,9 +35,8 @@ pub struct WasmResult {
 
 /// Sandboxed WASM executor using wasmtime.
 ///
-/// Provides safe execution of generated WASM modules with:
-/// - Fuel-based instruction limiting
-/// - Epoch-based interruption (timeout) via background ticker
+/// Only [`Self::execute`] performs empirical execution. Rust source text is not
+/// implicitly treated as WASM and is never assigned a synthetic execution score.
 pub struct WasmExecutor {
     engine: Engine,
     config: WasmConfig,
@@ -44,35 +44,32 @@ pub struct WasmExecutor {
 }
 
 impl WasmExecutor {
-    /// Create a new WASM executor with the given configuration.
     pub fn new(config: WasmConfig) -> Result<Self> {
         let mut engine_config = wasmtime::Config::new();
         engine_config.epoch_interruption(true);
         engine_config.async_support(false);
 
         let engine = Engine::new(&engine_config)?;
-
-        // Spawn background thread to increment epoch every 10ms
-        // This gives ~100ms resolution for timeouts
         let engine_handle = engine.clone();
         let ticker = Arc::new(());
         let ticker_clone = ticker.clone();
         std::thread::Builder::new()
             .name("wasm-epoch-ticker".into())
             .spawn(move || {
-                // Keep ticking while the Arc exists
                 while Arc::strong_count(&ticker_clone) > 1 {
                     engine_handle.increment_epoch();
                     std::thread::sleep(Duration::from_millis(10));
                 }
             })?;
 
-        Ok(Self { engine, config, _ticker: ticker })
+        Ok(Self {
+            engine,
+            config,
+            _ticker: ticker,
+        })
     }
 
-    /// Execute a WASM binary.
-    ///
-    /// The WASM must export a `main` function taking no arguments.
+    /// Execute a genuine WASM binary exporting `main: () -> ()`.
     pub fn execute(&self, wasm_bytes: &[u8]) -> Result<WasmResult> {
         let start = Instant::now();
 
@@ -81,13 +78,12 @@ impl WasmExecutor {
             return Ok(WasmResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Failed to set fuel: {}", e)),
+                error: Some(format!("Failed to set fuel: {e}")),
                 fuel_consumed: 0,
                 duration_ms: start.elapsed().as_millis() as u64,
             });
         }
         store.epoch_deadline_trap();
-        // Set epoch deadline: timeout / 10ms per tick = number of ticks
         let ticks = (self.config.timeout.as_millis() / 10).max(1) as u64;
         store.set_epoch_deadline(ticks);
 
@@ -97,7 +93,7 @@ impl WasmExecutor {
                 return Ok(WasmResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Compile error: {}", e)),
+                    error: Some(format!("Compile error: {e}")),
                     fuel_consumed: 0,
                     duration_ms: start.elapsed().as_millis() as u64,
                 });
@@ -110,7 +106,7 @@ impl WasmExecutor {
                 return Ok(WasmResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Instantiation failed: {}", e)),
+                    error: Some(format!("Instantiation failed: {e}")),
                     fuel_consumed: 0,
                     duration_ms: start.elapsed().as_millis() as u64,
                 });
@@ -123,7 +119,7 @@ impl WasmExecutor {
                 return Ok(WasmResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("No 'main' export found: {}", e)),
+                    error: Some(format!("No 'main' export found: {e}")),
                     fuel_consumed: 0,
                     duration_ms: start.elapsed().as_millis() as u64,
                 });
@@ -136,7 +132,7 @@ impl WasmExecutor {
                 return Ok(WasmResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Failed to read fuel: {}", e)),
+                    error: Some(format!("Failed to read fuel: {e}")),
                     fuel_consumed: 0,
                     duration_ms: start.elapsed().as_millis() as u64,
                 });
@@ -161,7 +157,7 @@ impl WasmExecutor {
                 } else if msg.contains("interrupted") || msg.contains("epoch") {
                     "Execution timed out".to_string()
                 } else {
-                    format!("Execution error: {}", e)
+                    format!("Execution error: {e}")
                 };
                 Ok(WasmResult {
                     success: false,
@@ -174,38 +170,30 @@ impl WasmExecutor {
         }
     }
 
-    /// Execute from a Rust source string (syntax-level validation only).
+    /// Refuse to pretend that Rust source text was executed.
+    ///
+    /// PAPERS may still generate Rust candidates, but empirical evaluation must
+    /// be delegated to a real compiler/evaluator (RSI/CCOS Research Lab) or the
+    /// caller must explicitly compile the program to WASM and call [`execute`].
     pub fn execute_rust_source(&self, source: &str) -> Result<WasmResult> {
-        if !source.contains("fn ") {
-            return Ok(WasmResult {
-                success: false,
-                output: String::new(),
-                error: Some("No function definition found".into()),
-                fuel_consumed: 0,
-                duration_ms: 0,
-            });
-        }
-
-        let has_main = source.contains("fn main");
-        let lines = source.lines().count();
-        let complexity = (lines as f64 / 50.0).min(1.0);
-        let score = if has_main { 0.5 } else { 0.3 } + complexity * 0.4;
-
+        let reason = if !source.contains("fn ") {
+            "Rust source rejected before execution: no function definition found"
+        } else {
+            "Rust source was not executed: compile it to WASM and call execute(), or delegate empirical evaluation to RSI/CCOS Research Lab"
+        };
         Ok(WasmResult {
-            success: true,
-            output: format!("Score: {:.2}, lines: {}", score, lines),
-            error: None,
+            success: false,
+            output: String::new(),
+            error: Some(reason.into()),
             fuel_consumed: 0,
             duration_ms: 0,
         })
     }
 
-    /// Validate WASM bytes (magic number check).
     pub fn validate_wasm(bytes: &[u8]) -> bool {
         bytes.len() >= 4 && bytes[0..4] == [0x00, 0x61, 0x73, 0x6D]
     }
 
-    /// Access the underlying engine.
     pub fn engine(&self) -> &Engine {
         &self.engine
     }
@@ -217,8 +205,7 @@ mod tests {
 
     #[test]
     fn test_executor_creation() {
-        let executor = WasmExecutor::new(WasmConfig::default());
-        assert!(executor.is_ok());
+        assert!(WasmExecutor::new(WasmConfig::default()).is_ok());
     }
 
     #[test]
@@ -229,38 +216,40 @@ mod tests {
 
     #[test]
     fn test_validate_wasm_invalid() {
-        let invalid = vec![0x00, 0x00, 0x00, 0x00];
-        assert!(!WasmExecutor::validate_wasm(&invalid));
+        assert!(!WasmExecutor::validate_wasm(&[0x00, 0x00, 0x00, 0x00]));
     }
 
     #[test]
     fn test_validate_wasm_too_short() {
-        let short = vec![0x00, 0x61];
-        assert!(!WasmExecutor::validate_wasm(&short));
+        assert!(!WasmExecutor::validate_wasm(&[0x00, 0x61]));
     }
 
     #[test]
     fn test_execute_invalid_wasm() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        let result = executor.execute(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
-        assert!(result.is_ok());
-        assert!(!result.unwrap().success);
+        let result = executor
+            .execute(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
+            .unwrap();
+        assert!(!result.success);
     }
 
     #[test]
-    fn test_execute_rust_source_no_fn() {
+    fn test_execute_rust_source_no_fn_is_refused() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         let result = executor.execute_rust_source("let x = 5;").unwrap();
         assert!(!result.success);
-        assert!(result.error.unwrap().contains("No function"));
+        assert!(result.error.unwrap().contains("no function"));
     }
 
     #[test]
-    fn test_execute_rust_source_with_main() {
+    fn test_execute_rust_source_with_main_is_still_not_execution() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        let src = "fn main() { println!(\"hello\"); }";
-        let result = executor.execute_rust_source(src).unwrap();
-        assert!(result.success);
+        let result = executor
+            .execute_rust_source("fn main() { println!(\"hello\"); }")
+            .unwrap();
+        assert!(!result.success);
+        assert_eq!(result.fuel_consumed, 0);
+        assert!(result.error.unwrap().contains("was not executed"));
     }
 
     #[test]
