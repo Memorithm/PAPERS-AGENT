@@ -45,7 +45,10 @@ jobs:
           if [ "${#files[@]}" -eq 0 ]; then
             exit 0
           fi
-          rustfmt --edition 2021 --check "${files[@]}"
+          for file in "${files[@]}"; do
+            echo "Checking $file"
+            rustfmt --edition 2021 --check < "$file"
+          done
 
       - name: Test
         run: cargo test --all-targets

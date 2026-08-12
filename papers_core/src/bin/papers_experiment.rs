@@ -5,8 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use papers_core::scientific_contract::{
-    sha256_hex, ExperimentProposal, ResourceLimits, ScientificBundle,
-    EXPERIMENT_PROPOSAL_SCHEMA,
+    sha256_hex, ExperimentProposal, ResourceLimits, ScientificBundle, EXPERIMENT_PROPOSAL_SCHEMA,
 };
 use serde::Serialize;
 
@@ -122,7 +121,11 @@ fn main() -> Result<()> {
         .with_context(|| format!("invalid ScientificBundle JSON in {}", args.bundle.display()))?;
     bundle.validate().map_err(anyhow::Error::msg)?;
 
-    let known_claims: BTreeSet<&str> = bundle.claims.iter().map(|claim| claim.id.as_str()).collect();
+    let known_claims: BTreeSet<&str> = bundle
+        .claims
+        .iter()
+        .map(|claim| claim.id.as_str())
+        .collect();
     for claim_id in &args.claim_ids {
         if !known_claims.contains(claim_id.as_str()) {
             anyhow::bail!("unknown claim id in bundle: {claim_id}");
@@ -192,8 +195,7 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("experiment_proposal.json")
     });
-    fs::write(&output, json)
-        .with_context(|| format!("cannot write {}", output.display()))?;
+    fs::write(&output, json).with_context(|| format!("cannot write {}", output.display()))?;
     println!("{}", output.display());
     Ok(())
 }
