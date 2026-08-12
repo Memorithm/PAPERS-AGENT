@@ -1,6 +1,5 @@
 use petgraph::graph::{DiGraph, NodeIndex};
-use scirust_neuro_symbolic::graph::kg::KnowledgeGraph as ScirustKG;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphPattern {
@@ -11,10 +10,17 @@ pub struct GraphPattern {
     pub frequency: usize,
 }
 
+/// Deterministic PAPERS-local graph index.
+///
+/// The previous implementation mirrored paper/tag facts into SciRust's
+/// `KnowledgeGraph`, which forced an absolute build-time SciRust dependency.
+/// PAPERS only needs a small paper↔tag index here; richer knowledge-graph work is
+/// delegated across the versioned SciRust/CCOS Research Lab runtime boundary.
 pub struct GraphMiner {
     graph: DiGraph<String, String>,
     node_types: HashMap<NodeIndex, String>,
-    kg: ScirustKG,
+    paper_nodes: HashMap<NodeIndex, String>,
+    papers_by_tag: HashMap<String, BTreeSet<String>>,
 }
 
 impl Default for GraphMiner {
@@ -28,15 +34,15 @@ impl GraphMiner {
         Self {
             graph: DiGraph::new(),
             node_types: HashMap::new(),
-            kg: ScirustKG::new(),
+            paper_nodes: HashMap::new(),
+            papers_by_tag: HashMap::new(),
         }
     }
 
     pub fn add_paper(&mut self, paper_id: &str, title: &str) -> NodeIndex {
         let idx = self.graph.add_node(title.to_string());
         self.node_types.insert(idx, "paper".into());
-        self.kg.add_triple(paper_id, "type", "paper");
-        self.kg.add_triple(paper_id, "title", title);
+        self.paper_nodes.insert(idx, paper_id.to_string());
         idx
     }
 
@@ -44,7 +50,19 @@ impl GraphMiner {
         let idx = self.graph.add_node(tag.to_string());
         self.node_types.insert(idx, "tag".into());
         self.graph.add_edge(paper_node, idx, "has_tag".into());
-        self.kg.add_triple(paper_id, "has_tag", tag);
+
+        // Prefer the stable paper id already bound to the node. Keep the
+        // explicit argument for API compatibility, but never silently associate
+        // a different id with an existing node.
+        let stable_id = self
+            .paper_nodes
+            .get(&paper_node)
+            .map(String::as_str)
+            .unwrap_or(paper_id);
+        self.papers_by_tag
+            .entry(tag.to_string())
+            .or_default()
+            .insert(stable_id.to_string());
         idx
     }
 
@@ -52,12 +70,12 @@ impl GraphMiner {
         self.graph.add_edge(from, to, relation.to_string());
     }
 
+    /// Return stable paper identifiers for a tag in deterministic lexical order.
     pub fn query_papers_by_tag(&self, tag: &str) -> Vec<String> {
-        self.kg
-            .get_objects("?", tag)
-            .into_iter()
-            .map(|e| e.0)
-            .collect()
+        self.papers_by_tag
+            .get(tag)
+            .map(|ids| ids.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     pub fn mine(&self) -> Vec<GraphPattern> {
@@ -68,7 +86,7 @@ impl GraphMiner {
                 patterns.push(GraphPattern {
                     id: format!("star_{}", node.index()),
                     pattern_type: "star".into(),
-                    description: format!("Star pattern: connects to {} nodes", degree),
+                    description: format!("Star pattern: connects to {degree} nodes"),
                     significance: (degree as f64).ln() / 10.0,
                     frequency: degree,
                 });
@@ -92,6 +110,7 @@ impl GraphMiner {
                 frequency: 1,
             });
         }
+        patterns.sort_by(|a, b| a.id.cmp(&b.id));
         patterns
     }
 
@@ -111,4 +130,33 @@ pub struct GraphStats {
     pub edges: usize,
     pub papers: usize,
     pub tags: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_lookup_returns_stable_paper_ids() {
+        let mut miner = GraphMiner::new();
+        let b = miner.add_paper("paper-b", "B");
+        let a = miner.add_paper("paper-a", "A");
+        miner.add_tag("paper-b", b, "attention");
+        miner.add_tag("paper-a", a, "attention");
+        assert_eq!(
+            miner.query_papers_by_tag("attention"),
+            vec!["paper-a".to_string(), "paper-b".to_string()]
+        );
+    }
+
+    #[test]
+    fn bound_node_identity_wins_over_mismatched_argument() {
+        let mut miner = GraphMiner::new();
+        let paper = miner.add_paper("paper-real", "Paper");
+        miner.add_tag("paper-wrong", paper, "rust");
+        assert_eq!(
+            miner.query_papers_by_tag("rust"),
+            vec!["paper-real".to_string()]
+        );
+    }
 }
