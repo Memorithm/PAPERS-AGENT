@@ -2,7 +2,7 @@
 name = "papers_core"
 version = "0.4.0"
 edition = "2021"
-description = "PAPERS V2 - Full Rust engine with scirust integration, WASM execution, ONNX embeddings"
+description = "PAPERS V2 - scientific intelligence engine with versioned CCOS/RSI interchange"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -41,13 +41,9 @@ tempfile = "3.8"
 walkdir = "2"
 sha2 = "0.10"
 
-# ── SciRust crates ──
-scirust-core = { path = "/tmp/scirust/scirust-core" }
-scirust-symbolic = { path = "/tmp/scirust/scirust-symbolic" }
-scirust-symreg = { path = "/tmp/scirust/scirust-symreg" }
-scirust-solvers = { path = "/tmp/scirust/scirust-solvers" }
-scirust-neuro-symbolic = { path = "/tmp/scirust/scirust-neuro-symbolic" }
-scirust-nas = { path = "/tmp/scirust/scirust-nas" }
+# SciRust is intentionally not a build-time dependency of PAPERS core.
+# Scientific/NAS/symbolic workloads cross a versioned runtime boundary toward
+# SciRust / CCOS Research Lab instead of assuming a machine-local /tmp checkout.
 
 [lib]
 name = "papers_core"
