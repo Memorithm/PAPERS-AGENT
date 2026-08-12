@@ -57,6 +57,10 @@ path = "src/main.rs"
 name = "papers-contract"
 path = "src/bin/papers_contract.rs"
 
+[[bin]]
+name = "papers-experiment"
+path = "src/bin/papers_experiment.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1
