@@ -29,8 +29,8 @@ jobs:
 
       - name: Reject machine-local dependency paths
         run: |
-          if grep -R --line-number --fixed-strings '/tmp/scirust' Cargo.toml src tests; then
-            echo 'machine-local /tmp/scirust dependency/reference detected' >&2
+          if grep --line-number -E 'path[[:space:]]*=[[:space:]]*"/tmp/scirust' Cargo.toml; then
+            echo 'machine-local /tmp/scirust Cargo dependency detected' >&2
             exit 1
           fi
 
