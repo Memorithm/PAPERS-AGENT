@@ -1,9 +1,6 @@
 //! Versioned scientific interchange contracts for PAPERS -> CCOS Research Lab -> RSI.
-//!
-//! The types in this module deliberately separate four trust classes:
-//! source material, extracted analysis fields, model inference, and empirical
-//! experiment results. A paper is therefore never promoted to "truth" merely
-//! because it was parsed or summarized by a model.
+//! A paper, an LLM inference, and an empirical observation are intentionally
+//! represented as different trust classes.
 
 use std::collections::BTreeMap;
 
@@ -20,13 +17,9 @@ pub const EXPERIMENT_RESULT_SCHEMA: &str = "memorithm.science/experiment-result-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceOrigin {
-    /// Text span directly tied to the source document.
     SourceSpan,
-    /// Structured field produced by PAPERS analysis.
     AnalysisField,
-    /// Statement inferred by an LLM or another non-deterministic model.
     ModelInference,
-    /// Observation produced by an executed experiment.
     Experiment,
 }
 
@@ -42,8 +35,6 @@ pub enum ContentScope {
 pub struct ModelProvenance {
     pub provider: String,
     pub model: String,
-    /// Optional hash of the model/prompt/configuration envelope when the caller
-    /// can provide one. PAPERS does not fabricate it when unavailable.
     pub config_sha256: Option<String>,
 }
 
@@ -51,11 +42,9 @@ pub struct ModelProvenance {
 pub struct Provenance {
     pub paper_id: String,
     pub source: String,
-    /// SHA-256 of the exact extracted content available to PAPERS, not
-    /// necessarily the original PDF bytes.
+    /// Hash of the exact extracted content PAPERS saw, not necessarily PDF bytes.
     pub extracted_content_sha256: String,
     pub extracted_content_scope: ContentScope,
-    /// SHA-256 of the serialized AnalysisReport that produced the bundle.
     pub analysis_sha256: String,
     pub generator: String,
     pub generator_version: String,
@@ -66,7 +55,6 @@ pub struct Provenance {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvidenceSpan {
     pub origin: EvidenceOrigin,
-    /// Stable machine-readable locator, e.g. `analysis.contributions[0]`.
     pub locator: String,
     pub section: Option<String>,
     pub page: Option<u32>,
@@ -129,8 +117,7 @@ pub struct ScientificClaim {
     pub reported_effect: Option<String>,
     pub limitations: Vec<String>,
     pub falsification_criteria: Vec<String>,
-    /// `None` means PAPERS has no defensible numeric confidence. It must not be
-    /// replaced with an invented default.
+    /// None means PAPERS has no defensible numeric confidence.
     pub confidence: Option<f64>,
     pub provenance: Provenance,
 }
@@ -146,8 +133,8 @@ impl ScientificClaim {
         if self.statement.trim().is_empty() {
             return Err("claim statement must be non-empty".into());
         }
-        if let Some(confidence) = self.confidence {
-            if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
+        if let Some(c) = self.confidence {
+            if !c.is_finite() || !(0.0..=1.0).contains(&c) {
                 return Err("claim confidence must be finite and in [0, 1]".into());
             }
         }
@@ -260,8 +247,8 @@ impl ExperimentResult {
             if name.trim().is_empty() || !observation.value.is_finite() {
                 return Err("metric names must be non-empty and values finite".into());
             }
-            if let Some(uncertainty) = observation.uncertainty {
-                if !uncertainty.is_finite() || uncertainty < 0.0 {
+            if let Some(u) = observation.uncertainty {
+                if !u.is_finite() || u < 0.0 {
                     return Err("metric uncertainty must be finite and non-negative".into());
                 }
             }
@@ -275,21 +262,18 @@ pub struct ScientificBundle {
     pub schema: String,
     pub paper: PaperIdentity,
     pub claims: Vec<ScientificClaim>,
-    /// PAPERS V1 intentionally does not fabricate experiment proposals from
-    /// vague analysis text. CCOS/RSI or a later typed planner may append them.
+    /// Intentionally empty until a typed planner supplies baseline, metrics,
+    /// workload and falsification criteria. PAPERS must not invent them.
     pub proposals: Vec<ExperimentProposal>,
     pub provenance: Provenance,
 }
 
 impl ScientificBundle {
-    /// Deterministically convert an existing AnalysisReport into a scientific
-    /// interchange bundle. Contributions and algorithm descriptions are marked
-    /// as `analysis_field` evidence; they are not misrepresented as raw source
-    /// spans. Numeric confidence is deliberately left unset.
     pub fn from_analysis_report(
         report: &AnalysisReport,
         model: Option<ModelProvenance>,
     ) -> Result<Self, String> {
+        let model_backed = model.is_some();
         let provenance = Provenance::from_analysis_report(report, model)?;
         let paper = PaperIdentity {
             id: report.document.id.clone(),
@@ -313,11 +297,7 @@ impl ScientificBundle {
                 paper_id: report.document.id.clone(),
                 kind: ClaimKind::Contribution,
                 statement: statement.to_string(),
-                state: if model.is_some() {
-                    ClaimState::Inferred
-                } else {
-                    ClaimState::Reported
-                },
+                state: if model_backed { ClaimState::Inferred } else { ClaimState::Reported },
                 evidence: vec![EvidenceSpan::analysis_field(
                     format!("analysis.contributions[{index}]"),
                     statement,
@@ -400,10 +380,7 @@ impl ScientificBundle {
         for claim in &self.claims {
             claim.validate()?;
             if claim.paper_id != self.paper.id {
-                return Err(format!(
-                    "claim {} belongs to {}, expected {}",
-                    claim.id, claim.paper_id, self.paper.id
-                ));
+                return Err(format!("claim {} has wrong paper_id", claim.id));
             }
         }
         for proposal in &self.proposals {
@@ -418,10 +395,10 @@ impl Provenance {
         report: &AnalysisReport,
         model: Option<ModelProvenance>,
     ) -> Result<Self, String> {
-        let (content, scope) = if let Some(full_text) = report.document.full_text.as_deref() {
-            (full_text.as_bytes().to_vec(), ContentScope::FullText)
-        } else if let Some(abstract_text) = report.document.abstract_text.as_deref() {
-            (abstract_text.as_bytes().to_vec(), ContentScope::Abstract)
+        let (content, scope) = if let Some(text) = report.document.full_text.as_deref() {
+            (text.as_bytes().to_vec(), ContentScope::FullText)
+        } else if let Some(text) = report.document.abstract_text.as_deref() {
+            (text.as_bytes().to_vec(), ContentScope::Abstract)
         } else {
             let metadata = serde_json::to_vec(&(
                 &report.document.id,
@@ -443,8 +420,7 @@ impl Provenance {
             analysis_sha256: sha256_hex(&analysis),
             generator: "papers_core::scientific_contract".into(),
             generator_version: env!("CARGO_PKG_VERSION").into(),
-            // Reuse the analysis timestamp so converting the same analysis is
-            // deterministic and replay-friendly.
+            // Reusing the source analysis timestamp makes conversion replayable.
             generated_at: report.timestamp.clone(),
             model,
         })
@@ -459,9 +435,7 @@ impl Provenance {
         {
             return Err("provenance identity fields must be non-empty".into());
         }
-        if !is_sha256_hex(&self.extracted_content_sha256)
-            || !is_sha256_hex(&self.analysis_sha256)
-        {
+        if !is_sha256_hex(&self.extracted_content_sha256) || !is_sha256_hex(&self.analysis_sha256) {
             return Err("provenance hashes must be lowercase SHA-256 hex".into());
         }
         if let Some(model) = &self.model {
@@ -492,8 +466,7 @@ fn is_sha256_hex(value: &str) -> bool {
 }
 
 fn deterministic_id(prefix: &str, paper_id: &str, statement: &str, ordinal: usize) -> String {
-    let payload = format!("{prefix}\0{paper_id}\0{ordinal}\0{statement}");
-    let digest = sha256_hex(payload.as_bytes());
+    let digest = sha256_hex(format!("{prefix}\0{paper_id}\0{ordinal}\0{statement}").as_bytes());
     format!("{prefix}-{}", &digest[..24])
 }
 
@@ -525,11 +498,12 @@ mod tests {
     #[test]
     fn evidence_hashes_exact_text() {
         let span = EvidenceSpan::analysis_field("analysis.x", "hello");
-        assert_eq!(span.text_sha256.as_deref(), Some(sha256_hex(b"hello").as_str()));
+        let expected = sha256_hex(b"hello");
+        assert_eq!(span.text_sha256.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
-    fn claim_rejects_invented_probability_range() {
+    fn claim_rejects_invalid_confidence() {
         let claim = ScientificClaim {
             schema: SCIENTIFIC_CLAIM_SCHEMA.into(),
             id: "claim-1".into(),
