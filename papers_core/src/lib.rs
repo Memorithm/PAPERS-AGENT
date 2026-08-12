@@ -31,6 +31,7 @@ pub mod queue;
 pub mod signaling;
 pub mod pdf;
 pub mod probes;
+pub mod scientific_contract;
 
 pub use models::*;
 pub use samplers::Sampler;
@@ -54,3 +55,4 @@ pub use reporting::*;
 pub use analysis::*;
 pub use llm_analyzer::*;
 pub use paper_registry::*;
+pub use scientific_contract::*;
