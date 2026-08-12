@@ -65,7 +65,10 @@ fn analysis_report_exports_versioned_valid_bundle() {
     assert_eq!(bundle.paper.id, "PAPER-TEST-1");
     assert_eq!(bundle.claims.len(), 2);
     assert!(bundle.proposals.is_empty());
-    assert_eq!(bundle.provenance.extracted_content_scope, papers_core::scientific_contract::ContentScope::Abstract);
+    assert_eq!(
+        bundle.provenance.extracted_content_scope,
+        papers_core::scientific_contract::ContentScope::Abstract
+    );
 
     assert_eq!(bundle.claims[0].schema, SCIENTIFIC_CLAIM_SCHEMA);
     assert_eq!(bundle.claims[0].kind, ClaimKind::Contribution);
@@ -101,5 +104,8 @@ fn model_identity_changes_trust_state_without_inventing_confidence() {
     .expect("bundle");
 
     assert_eq!(bundle.claims[0].state, ClaimState::Inferred);
-    assert!(bundle.claims.iter().all(|claim| claim.confidence.is_none()));
+    assert!(bundle
+        .claims
+        .iter()
+        .all(|claim| claim.confidence.is_none()));
 }
