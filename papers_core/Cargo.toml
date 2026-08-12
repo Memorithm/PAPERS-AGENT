@@ -39,6 +39,7 @@ once_cell = "1.19"
 semver = "1.0"
 tempfile = "3.8"
 walkdir = "2"
+sha2 = "0.10"
 
 # ── SciRust crates ──
 scirust-core = { path = "/tmp/scirust/scirust-core" }
@@ -55,6 +56,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "papers"
 path = "src/main.rs"
+
+[[bin]]
+name = "papers-contract"
+path = "src/bin/papers_contract.rs"
 
 [profile.release]
 lto = true
