@@ -1,0 +1,129 @@
+name: Apply verified Clippy fixes
+
+on:
+  push:
+    branches:
+      - feat/scientific-contracts-ccos-rsi
+    paths:
+      - .github/workflows/apply-clippy-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/scientific-contracts-ccos-rsi
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Apply exact Clippy fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} occurrence(s), found {count}")
+              p.write_text(text.replace(old, new))
+
+          replace_exact(
+              "papers_core/src/evolution/researcher.rs",
+              '&task_description.chars().take(80).collect::<String>()',
+              'task_description.chars().take(80).collect::<String>()',
+          )
+          replace_exact(
+              "papers_core/src/evolution/researcher.rs",
+              '&task_description.chars().take(60).collect::<String>()',
+              'task_description.chars().take(60).collect::<String>()',
+          )
+          replace_exact(
+              "papers_core/src/evolution/mod.rs",
+              '''        let mut cfg = EvolutionConfig::default();
+                  cfg.max_rounds = 1;
+                  cfg.n_candidates_per_round = 1;
+                  cfg.patience = usize::MAX;''',
+              '''        let cfg = EvolutionConfig {
+                      max_rounds: 1,
+                      n_candidates_per_round: 1,
+                      patience: usize::MAX,
+                      ..EvolutionConfig::default()
+                  };''',
+          )
+          replace_exact(
+              "papers_core/src/symbolic.rs",
+              '''            for j in col..=n {
+                          m[col][j] /= divisor;
+                      }
+                      for i in 0..n {
+                          if i == col {
+                              continue;
+                          }
+                          let factor = m[i][col];
+                          for j in col..=n {
+                              m[i][j] -= factor * m[col][j];
+                          }
+                      }''',
+              '''            for value in &mut m[col][col..=n] {
+                          *value /= divisor;
+                      }
+                      let pivot_row = m[col].clone();
+                      for (i, row) in m.iter_mut().enumerate() {
+                          if i == col {
+                              continue;
+                          }
+                          let factor = row[col];
+                          for (value, &pivot_value) in row[col..=n]
+                              .iter_mut()
+                              .zip(&pivot_row[col..=n])
+                          {
+                              *value -= factor * pivot_value;
+                          }
+                      }''',
+          )
+          PY
+
+      - name: Format only modified Rust files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            papers_core/src/evolution/researcher.rs \
+            papers_core/src/evolution/mod.rs \
+            papers_core/src/symbolic.rs
+          do
+            rustfmt --edition 2021 < "$file" > "$file.tmp"
+            mv "$file.tmp" "$file"
+          done
+
+      - name: Test
+        working-directory: papers_core
+        run: cargo test --all-targets
+
+      - name: Clippy
+        working-directory: papers_core
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Commit verified fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add papers_core/src/evolution/researcher.rs papers_core/src/evolution/mod.rs papers_core/src/symbolic.rs
+          git diff --cached --check
+          git commit -m "fix(clippy): satisfy strict warnings"
+          git push origin HEAD:feat/scientific-contracts-ccos-rsi
