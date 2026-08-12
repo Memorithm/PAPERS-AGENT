@@ -64,9 +64,8 @@ impl GpuDetector {
                 // Try to find nvcc path
                 if let Ok(path) = Command::new("which").arg("nvcc").output() {
                     if path.status.success() {
-                        self.cuda_path = Some(
-                            String::from_utf8_lossy(&path.stdout).trim().to_string()
-                        );
+                        self.cuda_path =
+                            Some(String::from_utf8_lossy(&path.stdout).trim().to_string());
                     }
                 }
                 return true;
@@ -152,7 +151,8 @@ impl GpuDetector {
             cuda_version: String::new(),
             driver_version: String::new(),
             is_nvidia: gpu_name.to_lowercase().contains("nvidia"),
-            is_amd: gpu_name.to_lowercase().contains("amd") || gpu_name.to_lowercase().contains("radeon"),
+            is_amd: gpu_name.to_lowercase().contains("amd")
+                || gpu_name.to_lowercase().contains("radeon"),
             is_intel: gpu_name.to_lowercase().contains("intel"),
         };
 
@@ -190,9 +190,7 @@ impl GpuDetector {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.is_dir() {
-                let _device_name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let _device_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 // Check for NVIDIA vendor ID (0x10de)
                 let vendor_file = path.join("vendor");
@@ -568,7 +566,12 @@ mod tests {
 
     #[test]
     fn test_gpu_task_enum_values() {
-        let tasks = [GpuTask::Inference, GpuTask::Training, GpuTask::Embedding, GpuTask::General];
+        let tasks = [
+            GpuTask::Inference,
+            GpuTask::Training,
+            GpuTask::Embedding,
+            GpuTask::General,
+        ];
         assert_eq!(tasks.len(), 4);
         assert_eq!(GpuTask::Inference, GpuTask::Inference);
         assert_ne!(GpuTask::Inference, GpuTask::Training);

@@ -1,5 +1,5 @@
-use scirust_neuro_symbolic::graph::kg::KnowledgeGraph as ScirustKG;
 use petgraph::graph::{DiGraph, NodeIndex};
+use scirust_neuro_symbolic::graph::kg::KnowledgeGraph as ScirustKG;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -53,7 +53,8 @@ impl GraphMiner {
     }
 
     pub fn query_papers_by_tag(&self, tag: &str) -> Vec<String> {
-        self.kg.get_objects("?", tag)
+        self.kg
+            .get_objects("?", tag)
             .into_iter()
             .map(|e| e.0)
             .collect()

@@ -24,11 +24,7 @@ impl Hypothesis {
         if self.likelihoods.is_empty() {
             return log_prior;
         }
-        let log_likelihood: f64 = self
-            .likelihoods
-            .iter()
-            .map(|l| l.max(1e-15).ln())
-            .sum();
+        let log_likelihood: f64 = self.likelihoods.iter().map(|l| l.max(1e-15).ln()).sum();
         log_prior + log_likelihood
     }
 
@@ -48,8 +44,7 @@ impl Hypothesis {
     }
 
     pub fn update(&mut self, likelihood: f64) {
-        self.likelihoods
-            .push(likelihood.clamp(1e-10, 1.0 - 1e-10));
+        self.likelihoods.push(likelihood.clamp(1e-10, 1.0 - 1e-10));
     }
 }
 
@@ -85,10 +80,9 @@ impl ProbabilisticReasoner {
     }
 
     pub fn best(&self) -> Option<&Hypothesis> {
-        self.hypotheses.iter().max_by(|a, b| {
-            a.log_posterior()
-                .total_cmp(&b.log_posterior())
-        })
+        self.hypotheses
+            .iter()
+            .max_by(|a, b| a.log_posterior().total_cmp(&b.log_posterior()))
     }
 
     /// Posterior odds P(H1|D) / P(H2|D) under the reasoner's normalized
@@ -103,14 +97,8 @@ impl ProbabilisticReasoner {
                     .iter()
                     .map(Hypothesis::log_posterior)
                     .collect();
-                let max_lp = log_posts
-                    .iter()
-                    .copied()
-                    .fold(f64::NEG_INFINITY, f64::max);
-                let exp_posts: Vec<f64> = log_posts
-                    .iter()
-                    .map(|lp| (lp - max_lp).exp())
-                    .collect();
+                let max_lp = log_posts.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let exp_posts: Vec<f64> = log_posts.iter().map(|lp| (lp - max_lp).exp()).collect();
                 let sum_exp: f64 = exp_posts.iter().sum();
                 if !sum_exp.is_finite() || sum_exp <= f64::MIN_POSITIVE {
                     return 1.0;

@@ -236,8 +236,12 @@ impl<'a> LLmAnalyzer<'a> {
                     memory_cost: "INFORMATION NON DISPONIBLE DANS LE PAPIER".into(),
                 },
                 system: SystemRequirements {
-                    vram: None, ram: None, disk: None,
-                    latency: None, throughput: None, scalability: None,
+                    vram: None,
+                    ram: None,
+                    disk: None,
+                    latency: None,
+                    throughput: None,
+                    scalability: None,
                 },
                 architecture: crate::analysis::ArchitecturalMapping::empty(),
                 reproducibility: 0.0,
@@ -288,9 +292,7 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     fn get_float(&self, obj: &serde_json::Value, key: &str, default: f64) -> f64 {
-        obj.get(key)
-            .and_then(|v| v.as_f64())
-            .unwrap_or(default)
+        obj.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
     }
 
     // --- API publique ---
@@ -312,13 +314,22 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Résumé exécutif.
-    pub fn analyze_executive_summary(&self, title: &str, abs: &str, contributions: &[String]) -> String {
+    pub fn analyze_executive_summary(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+    ) -> String {
         let prompt = EXECUTIVE_SUMMARY_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{contributions}", &contributions.join("\n"));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
-        self.get_string(&result, "executive_summary", "INFORMATION NON DISPONIBLE DANS LE PAPIER")
+        self.get_string(
+            &result,
+            "executive_summary",
+            "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+        )
     }
 
     /// Analyse système (VRAM, RAM, etc.).
@@ -332,17 +343,44 @@ impl<'a> LLmAnalyzer<'a> {
         }
 
         SystemRequirements {
-            vram: Some(self.get_string(&result, "vram_consumption", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            ram: Some(self.get_string(&result, "ram_consumption", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            disk: Some(self.get_string(&result, "disk_io", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            latency: Some(self.get_string(&result, "latency", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            throughput: Some(self.get_string(&result, "throughput", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            scalability: Some(self.get_string(&result, "scalability", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
+            vram: Some(self.get_string(
+                &result,
+                "vram_consumption",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            ram: Some(self.get_string(
+                &result,
+                "ram_consumption",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            disk: Some(self.get_string(
+                &result,
+                "disk_io",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            latency: Some(self.get_string(
+                &result,
+                "latency",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            throughput: Some(self.get_string(
+                &result,
+                "throughput",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            scalability: Some(self.get_string(
+                &result,
+                "scalability",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
         }
     }
 
     /// Cartographie architecturale.
-    pub fn analyze_architecture(&self, report: &AnalysisReport) -> crate::analysis::ArchitecturalMapping {
+    pub fn analyze_architecture(
+        &self,
+        report: &AnalysisReport,
+    ) -> crate::analysis::ArchitecturalMapping {
         let text = prepare_text(&report.document);
         let prompt = ARCHITECTURE_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
@@ -380,20 +418,29 @@ impl<'a> LLmAnalyzer<'a> {
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         // Parse le tableau [{level, description, mitigation}]
-        let risks_from_json = result.get("risks").and_then(|v| v.as_array()).map(|arr| {
-            arr.iter().filter_map(|r| {
-                let level = r.get("level").and_then(|v| v.as_str()).unwrap_or("MEDIUM");
-                let description = r.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let mitigation = r.get("mitigation").and_then(|v| v.as_str());
-                if description.is_empty() { None } else {
-                    Some(Risk {
-                        level: level.to_string(),
-                        description: description.to_string(),
-                        mitigation: mitigation.map(|s| s.to_string()),
+        let risks_from_json = result
+            .get("risks")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| {
+                        let level = r.get("level").and_then(|v| v.as_str()).unwrap_or("MEDIUM");
+                        let description =
+                            r.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                        let mitigation = r.get("mitigation").and_then(|v| v.as_str());
+                        if description.is_empty() {
+                            None
+                        } else {
+                            Some(Risk {
+                                level: level.to_string(),
+                                description: description.to_string(),
+                                mitigation: mitigation.map(|s| s.to_string()),
+                            })
+                        }
                     })
-                }
-            }).collect::<Vec<Risk>>()
-        }).unwrap_or_default();
+                    .collect::<Vec<Risk>>()
+            })
+            .unwrap_or_default();
 
         if risks_from_json.is_empty() && self.fallback {
             crate::analysis::RiskAnalyzer::analyze(&report.document, &text)
@@ -417,7 +464,12 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Plan d'expérimentation.
-    pub fn analyze_experiment(&self, title: &str, abs: &str, contributions: &[String]) -> serde_json::Value {
+    pub fn analyze_experiment(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+    ) -> serde_json::Value {
         let prompt = EXPERIMENT_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
@@ -426,7 +478,13 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Pseudo-code.
-    pub fn analyze_pseudocode(&self, title: &str, abs: &str, contributions: &[String], math: &MathematicalAnalysis) -> serde_json::Value {
+    pub fn analyze_pseudocode(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+        math: &MathematicalAnalysis,
+    ) -> serde_json::Value {
         let equations = math.equations.join("\n");
         let variables: String = math
             .variables
@@ -444,13 +502,23 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Scoring LLM (reproductibilité + intégration).
-    pub fn analyze_scoring(&self, title: &str, abs: &str, contributions: &[String], limitations: &[String], code_available: bool) -> Option<(f64, f64)> {
+    pub fn analyze_scoring(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+        limitations: &[String],
+        code_available: bool,
+    ) -> Option<(f64, f64)> {
         let prompt = SCORING_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{contributions}", &contributions.join("\n"))
             .replace("{limitations}", &limitations.join("\n"))
-            .replace("{code_available}", if code_available { "oui" } else { "non" });
+            .replace(
+                "{code_available}",
+                if code_available { "oui" } else { "non" },
+            );
         let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
 
         if result.is_null() {
@@ -465,7 +533,11 @@ impl<'a> LLmAnalyzer<'a> {
 
     /// Analyse approfondie multi-passes.
     pub fn analyze_deep(&self, title: &str, abs: &str, text: &str) -> serde_json::Value {
-        let full_text = if text.len() > 12000 { safe_truncate(text, 12000) } else { text.to_string() };
+        let full_text = if text.len() > 12000 {
+            safe_truncate(text, 12000)
+        } else {
+            text.to_string()
+        };
         let prompt = DEEP_ANALYSIS_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
@@ -488,7 +560,14 @@ fn prepare_text(document: &ExtractedDocument) -> String {
 }
 
 fn fallback_contributions(text: &str) -> Vec<String> {
-    let keywords = ["propose", "introduce", "contribution", "we show", "we demonstrate", "we present"];
+    let keywords = [
+        "propose",
+        "introduce",
+        "contribution",
+        "we show",
+        "we demonstrate",
+        "we present",
+    ];
     let mut results = Vec::new();
     for sentence in text.split(['.', '!', '?']) {
         let s = sentence.trim();
@@ -510,7 +589,11 @@ fn variables_from_json(result: &serde_json::Value) -> MathematicalAnalysis {
             arr.iter()
                 .filter_map(|v| {
                     let name = v.get("name").and_then(|n| n.as_str())?.to_string();
-                    let meaning = v.get("meaning").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let meaning = v
+                        .get("meaning")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     Some((name, meaning))
                 })
                 .collect()

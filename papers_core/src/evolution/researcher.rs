@@ -84,7 +84,10 @@ impl Researcher {
         let prompt = if use_diff && !parent_program.is_empty() {
             DIFF_RESEARCHER_PROMPT
                 .replace("{task_description}", task_description)
-                .replace("{parent_program}", &parent_program.chars().take(8000).collect::<String>())
+                .replace(
+                    "{parent_program}",
+                    &parent_program.chars().take(8000).collect::<String>(),
+                )
                 .replace("{cognition_items}", &cognition_text)
                 .replace("{context_nodes}", &context_text)
         } else {
@@ -96,11 +99,20 @@ impl Researcher {
 
         match llm.generate_json(&prompt, Some(RESEARCHER_SYSTEM)) {
             Ok(json) => {
-                let program = json.get("program").and_then(|v| v.as_str()).unwrap_or("")
+                let program = json
+                    .get("program")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
                     .to_string();
-                let motivation = json.get("motivation").and_then(|v| v.as_str()).unwrap_or("")
+                let motivation = json
+                    .get("motivation")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
                     .to_string();
-                let diff_summary = json.get("diff_summary").and_then(|v| v.as_str()).unwrap_or("")
+                let diff_summary = json
+                    .get("diff_summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
                     .to_string();
 
                 let cleaned = Self::clean_program(&program);
@@ -119,14 +131,21 @@ impl Researcher {
     }
 
     fn is_valid(program: &str) -> bool {
-        program.contains("fn ") || program.contains("struct ") || program.contains("impl ") || program.contains("use ")
+        program.contains("fn ")
+            || program.contains("struct ")
+            || program.contains("impl ")
+            || program.contains("use ")
     }
 
     fn clean_program(program: &str) -> String {
         let mut s = program.trim().to_string();
         if s.starts_with("```") {
             let lines: Vec<&str> = s.lines().collect();
-            let start = if lines.first().is_some_and(|l| l.starts_with("```")) { 1 } else { 0 };
+            let start = if lines.first().is_some_and(|l| l.starts_with("```")) {
+                1
+            } else {
+                0
+            };
             let end = if lines.last().is_some_and(|l| l.trim().starts_with("```")) {
                 lines.len().saturating_sub(1)
             } else {
@@ -143,7 +162,11 @@ impl Researcher {
         }
         let mut lines = Vec::new();
         for (i, entry) in items.iter().enumerate() {
-            lines.push(format!("### Cognition {} (source: {})", i + 1, entry.source));
+            lines.push(format!(
+                "### Cognition {} (source: {})",
+                i + 1,
+                entry.source
+            ));
             lines.push(entry.content.chars().take(1500).collect());
             lines.push(String::new());
         }
@@ -156,15 +179,32 @@ impl Researcher {
         }
         let mut lines = Vec::new();
         for (i, node) in nodes.iter().enumerate() {
-            let id_str = node.id.map(|id| id.to_string()).unwrap_or_else(|| "?".into());
-            lines.push(format!("### Experiment {} ({}) - Score: {:.4}", i + 1, id_str, node.score));
-            lines.push(format!("Motivation: {}", node.motivation.chars().take(300).collect::<String>()));
+            let id_str = node
+                .id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "?".into());
+            lines.push(format!(
+                "### Experiment {} ({}) - Score: {:.4}",
+                i + 1,
+                id_str,
+                node.score
+            ));
+            lines.push(format!(
+                "Motivation: {}",
+                node.motivation.chars().take(300).collect::<String>()
+            ));
             if !node.analysis.is_empty() {
-                lines.push(format!("Analysis: {}", node.analysis.chars().take(300).collect::<String>()));
+                lines.push(format!(
+                    "Analysis: {}",
+                    node.analysis.chars().take(300).collect::<String>()
+                ));
             }
             if !node.results.is_empty() {
                 if let Ok(json) = serde_json::to_string(&node.results) {
-                    lines.push(format!("Results: {}", json.chars().take(500).collect::<String>()));
+                    lines.push(format!(
+                        "Results: {}",
+                        json.chars().take(500).collect::<String>()
+                    ));
                 }
             }
             lines.push(String::new());
@@ -174,7 +214,10 @@ impl Researcher {
 
     fn fallback_generation(task_description: &str) -> ResearcherOutput {
         let task_lower = task_description.to_lowercase();
-        let (motivation, program) = if task_lower.contains("transformer") || task_lower.contains("attention") || task_lower.contains("llm") {
+        let (motivation, program) = if task_lower.contains("transformer")
+            || task_lower.contains("attention")
+            || task_lower.contains("llm")
+        {
             ("Multi-head attention baseline".to_string(), r#"/// Simple multi-head attention forward pass.
 pub fn attention(q: &[f32], k: &[f32], v: &[f32], d_k: usize) -> Vec<f32> {
     let n = q.len() / d_k;
@@ -206,8 +249,13 @@ pub fn attention(q: &[f32], k: &[f32], v: &[f32], d_k: usize) -> Vec<f32> {
     }
     output
 }"#.to_string())
-        } else if task_lower.contains("embedding") || task_lower.contains("semantic") || task_lower.contains("vector") {
-            ("Simple embedding projection".to_string(), r#"/// Project tokens into embedding space.
+        } else if task_lower.contains("embedding")
+            || task_lower.contains("semantic")
+            || task_lower.contains("vector")
+        {
+            (
+                "Simple embedding projection".to_string(),
+                r#"/// Project tokens into embedding space.
 pub fn embed(tokens: &[u32], weights: &[f32], vocab_size: usize, d_model: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; tokens.len() * d_model];
     for (i, &tok) in tokens.iter().enumerate() {
@@ -219,9 +267,16 @@ pub fn embed(tokens: &[u32], weights: &[f32], vocab_size: usize, d_model: usize)
         }
     }
     out
-}"#.to_string())
-        } else if task_lower.contains("rnn") || task_lower.contains("lstm") || task_lower.contains("gru") {
-            ("Simple RNN cell forward pass".to_string(), r#"/// Single RNN cell step.
+}"#
+                .to_string(),
+            )
+        } else if task_lower.contains("rnn")
+            || task_lower.contains("lstm")
+            || task_lower.contains("gru")
+        {
+            (
+                "Simple RNN cell forward pass".to_string(),
+                r#"/// Single RNN cell step.
 pub fn rnn_step(x: &[f32], h_prev: &[f32], w_ih: &[f32], w_hh: &[f32]) -> Vec<f32> {
     let hidden_size = h_prev.len();
     let mut h = vec![0.0f32; hidden_size];
@@ -232,9 +287,16 @@ pub fn rnn_step(x: &[f32], h_prev: &[f32], w_ih: &[f32], w_hh: &[f32]) -> Vec<f3
         h[i] = sum.tanh();
     }
     h
-}"#.to_string())
-        } else if task_lower.contains("conv") || task_lower.contains("cnn") || task_lower.contains("vision") {
-            ("Simple 2D convolution baseline".to_string(), r#"/// 2D convolution (single channel, no padding).
+}"#
+                .to_string(),
+            )
+        } else if task_lower.contains("conv")
+            || task_lower.contains("cnn")
+            || task_lower.contains("vision")
+        {
+            (
+                "Simple 2D convolution baseline".to_string(),
+                r#"/// 2D convolution (single channel, no padding).
 pub fn conv2d(input: &[f32], kernel: &[f32], h: usize, w: usize, k: usize) -> Vec<f32> {
     let oh = h - k + 1;
     let ow = w - k + 1;
@@ -253,9 +315,16 @@ pub fn conv2d(input: &[f32], kernel: &[f32], h: usize, w: usize, k: usize) -> Ve
         }
     }
     out
-}"#.to_string())
-        } else if task_lower.contains("graph") || task_lower.contains("gnn") || task_lower.contains("message") {
-            ("Simple GNN message passing layer".to_string(), r#"/// Graph message passing between nodes.
+}"#
+                .to_string(),
+            )
+        } else if task_lower.contains("graph")
+            || task_lower.contains("gnn")
+            || task_lower.contains("message")
+        {
+            (
+                "Simple GNN message passing layer".to_string(),
+                r#"/// Graph message passing between nodes.
 pub fn message_passing(node_feats: &[f32], adj: &[f32], n: usize, d: usize) -> Vec<f32> {
     let mut updated = vec![0.0f32; n * d];
     for i in 0..n {
@@ -273,13 +342,19 @@ pub fn message_passing(node_feats: &[f32], adj: &[f32], n: usize, d: usize) -> V
         }
     }
     updated
-}"#.to_string())
+}"#
+                .to_string(),
+            )
         } else if task_lower.contains("sort") || task_lower.contains("optimize") {
-            ("Baseline sort optimization".to_string(), r#"/// Sort and return optimized data.
+            (
+                "Baseline sort optimization".to_string(),
+                r#"/// Sort and return optimized data.
 pub fn optimize(data: &mut [i32]) -> Vec<i32> {
     data.sort_unstable();
     data.to_vec()
-}"#.to_string())
+}"#
+                .to_string(),
+            )
         } else if task_lower.contains("circle") || task_lower.contains("pack") {
             ("Hexagonal grid packing baseline".to_string(), r#"/// Place n circles in a unit square using hexagonal packing.
 pub fn place_circles(n: usize) -> Vec<(f64, f64, f64)> {
@@ -304,7 +379,10 @@ pub fn place_circles(n: usize) -> Vec<(f64, f64, f64)> {
     }
     result
 }"#.to_string())
-        } else if task_lower.contains("agent") || task_lower.contains("reinforce") || task_lower.contains("rl") {
+        } else if task_lower.contains("agent")
+            || task_lower.contains("reinforce")
+            || task_lower.contains("rl")
+        {
             ("Simple Q-learning agent baseline".to_string(), r#"/// Tabular Q-learning update step.
 pub struct QAgent { q_table: Vec<f64>, n_actions: usize, lr: f64, gamma: f64 }
 
@@ -324,7 +402,9 @@ impl QAgent {
     }
 }"#.to_string())
         } else if task_lower.contains("search") || task_lower.contains("mcts") {
-            ("Monte Carlo Tree Search baseline".to_string(), r#"/// Simple MCTS node.
+            (
+                "Monte Carlo Tree Search baseline".to_string(),
+                r#"/// Simple MCTS node.
 pub struct MctsNode {
     pub visits: u32, pub value: f64, pub children: Vec<MctsNode>,
 }
@@ -335,7 +415,9 @@ impl MctsNode {
         if self.visits == 0 { return f64::INFINITY; }
         self.value / self.visits as f64 + c * (total as f64).ln() / self.visits as f64
     }
-}"#.to_string())
+}"#
+                .to_string(),
+            )
         } else {
             (format!("Generic solver for: {}", &task_description.chars().take(80).collect::<String>()),
              format!("/// Solution for: {}\npub fn solve(data: &[i32]) -> Vec<i32> {{\n    data.to_vec()\n}}\n\npub fn process(data: &mut [f64]) -> f64 {{\n    data.iter().sum::<f64>() / data.len() as f64\n}}",

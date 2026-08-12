@@ -62,12 +62,12 @@ fn main() -> Result<()> {
         _ => anyhow::bail!("--provider and --model must be supplied together"),
     };
 
-    let bundle = ScientificBundle::from_analysis_report(&report, model)
-        .map_err(anyhow::Error::msg)?;
+    let bundle =
+        ScientificBundle::from_analysis_report(&report, model).map_err(anyhow::Error::msg)?;
     bundle.validate().map_err(anyhow::Error::msg)?;
 
-    let json = serde_json::to_string_pretty(&bundle)
-        .context("cannot serialize scientific bundle")?;
+    let json =
+        serde_json::to_string_pretty(&bundle).context("cannot serialize scientific bundle")?;
 
     if args.stdout {
         println!("{json}");
@@ -85,8 +85,7 @@ fn main() -> Result<()> {
         path
     });
 
-    fs::write(&output, json)
-        .with_context(|| format!("cannot write {}", output.display()))?;
+    fs::write(&output, json).with_context(|| format!("cannot write {}", output.display()))?;
 
     println!("{}", output.display());
     Ok(())

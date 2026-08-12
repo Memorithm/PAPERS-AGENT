@@ -83,7 +83,8 @@ impl PaperRegistry {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Création dossier: {}", e))?;
         }
-        let json = serde_json::to_string_pretty(&self.papers).map_err(|e| format!("Sérialisation: {}", e))?;
+        let json = serde_json::to_string_pretty(&self.papers)
+            .map_err(|e| format!("Sérialisation: {}", e))?;
         fs::write(&self.path, &json).map_err(|e| format!("Écriture: {}", e))?;
         info!("PaperRegistry sauvegardé: {} papiers", self.papers.len());
         Ok(())
@@ -210,17 +211,17 @@ impl PaperRegistry {
             let content = [
                 format!("Title: {}", paper.title),
                 format!("Authors: {}", paper.authors.join(", ")),
-                format!("Key Insight: {}", paper.key_insight.as_deref().unwrap_or("")),
+                format!(
+                    "Key Insight: {}",
+                    paper.key_insight.as_deref().unwrap_or("")
+                ),
                 paper.abstract_text.as_deref().unwrap_or("").to_string(),
             ]
             .join("\n\n");
 
             store.add(CognitionItem::new(
                 content,
-                paper
-                    .source
-                    .clone()
-                    .unwrap_or_else(|| paper.title.clone()),
+                paper.source.clone().unwrap_or_else(|| paper.title.clone()),
                 paper.tags.clone(),
             ));
             count += 1;
@@ -285,7 +286,10 @@ impl PaperRegistry {
             results.insert("knowledge_graph".into(), self.import_to_graph(g));
         }
         if let Some((v, offset)) = vs {
-            results.insert("vector_store".into(), self.import_to_vector_store(v, offset));
+            results.insert(
+                "vector_store".into(),
+                self.import_to_vector_store(v, offset),
+            );
         }
         results
     }

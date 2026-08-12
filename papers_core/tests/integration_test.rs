@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use papers_core::models::{CognitionItem, EvolutionConfig, Node};
     use papers_core::cognition::CognitionStore;
     use papers_core::database::Database;
+    use papers_core::models::{CognitionItem, EvolutionConfig, Node};
     use papers_core::samplers::{create_sampler, GreedySampler, RandomSampler, UCB1Sampler};
     use papers_core::Sampler;
 
@@ -18,7 +18,11 @@ mod tests {
     fn test_database_add_and_sample() {
         let mut db = Database::new("greedy");
         for i in 0..10 {
-            db.add(Node::new(format!("m{}", i), format!("c{}", i), i as f64 / 10.0));
+            db.add(Node::new(
+                format!("m{}", i),
+                format!("c{}", i),
+                i as f64 / 10.0,
+            ));
         }
         assert_eq!(db.len(), 10);
 
@@ -113,8 +117,16 @@ mod tests {
     #[test]
     fn test_cognition_search_by_tag() {
         let mut store = CognitionStore::new();
-        store.add(CognitionItem::new("content".into(), "src".into(), vec!["attention".into()]));
-        store.add(CognitionItem::new("other".into(), "src2".into(), vec!["ml".into()]));
+        store.add(CognitionItem::new(
+            "content".into(),
+            "src".into(),
+            vec!["attention".into()],
+        ));
+        store.add(CognitionItem::new(
+            "other".into(),
+            "src2".into(),
+            vec!["ml".into()],
+        ));
 
         let by_tag = store.search_by_tag("attention");
         assert_eq!(by_tag.len(), 1);

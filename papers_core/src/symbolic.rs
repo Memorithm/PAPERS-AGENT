@@ -96,8 +96,7 @@ impl SymbolicEngine {
             .collect();
 
         for col in 0..n {
-            let pivot = (col..n)
-                .max_by(|&i, &j| m[i][col].abs().total_cmp(&m[j][col].abs()))?;
+            let pivot = (col..n).max_by(|&i, &j| m[i][col].abs().total_cmp(&m[j][col].abs()))?;
             if m[pivot][col].abs() <= 1e-15 {
                 return None;
             }
@@ -233,8 +232,8 @@ mod tests {
 
     #[test]
     fn solves_linear_system() {
-        let x = SymbolicEngine::solve_linear(&[vec![2.0, 1.0], vec![1.0, -1.0]], &[5.0, 1.0])
-            .unwrap();
+        let x =
+            SymbolicEngine::solve_linear(&[vec![2.0, 1.0], vec![1.0, -1.0]], &[5.0, 1.0]).unwrap();
         assert!((x[0] - 2.0).abs() < 1e-9);
         assert!((x[1] - 1.0).abs() < 1e-9);
     }

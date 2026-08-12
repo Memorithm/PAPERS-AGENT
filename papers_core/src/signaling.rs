@@ -1,10 +1,10 @@
 //! Signaling pattern — event system (observer), coordination primitives,
 //! condition variables for the PAPERS evolution pipeline.
 
+use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use parking_lot::{Mutex, Condvar};
 
 // ── Event system (Observer pattern) ────────────────────────────
 
@@ -72,9 +72,7 @@ impl EventBus {
         }
 
         // Record event in history
-        self.event_history
-            .lock()
-            .push((event, start.elapsed()));
+        self.event_history.lock().push((event, start.elapsed()));
     }
 
     /// Get recent event history.
@@ -366,10 +364,7 @@ mod tests {
                 i
             }));
         }
-        let results: Vec<usize> = handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect();
+        let results: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         assert_eq!(results.len(), 3);
     }
 
@@ -414,12 +409,8 @@ mod tests {
     #[test]
     fn test_event_bus_recent_events_and_counts() {
         let bus = EventBus::new();
-        bus.emit(PipelineEvent::ExtractionStarted {
-            source: "a".into(),
-        });
-        bus.emit(PipelineEvent::ExtractionCompleted {
-            doc_id: "a".into(),
-        });
+        bus.emit(PipelineEvent::ExtractionStarted { source: "a".into() });
+        bus.emit(PipelineEvent::ExtractionCompleted { doc_id: "a".into() });
         bus.emit(PipelineEvent::Shutdown);
 
         let recent = bus.recent_events(2);

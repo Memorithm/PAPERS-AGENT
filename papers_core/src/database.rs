@@ -158,8 +158,11 @@ impl Database {
             .map(|(id, node)| (*id, node.score))
             .collect();
         entries.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let keep_ids: std::collections::HashSet<usize> =
-            entries.into_iter().take(keep_top).map(|(id, _)| id).collect();
+        let keep_ids: std::collections::HashSet<usize> = entries
+            .into_iter()
+            .take(keep_top)
+            .map(|(id, _)| id)
+            .collect();
         self.nodes.retain(|id, _| keep_ids.contains(id));
     }
 

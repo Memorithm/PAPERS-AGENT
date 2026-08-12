@@ -57,10 +57,13 @@ impl DocStore {
         if persist_path.exists() {
             let json = std::fs::read_to_string(persist_path)?;
             if !json.trim().is_empty() {
-                store.documents = serde_json::from_str(&json)
-                    .unwrap_or_default();
+                store.documents = serde_json::from_str(&json).unwrap_or_default();
             }
-            log::info!("DocStore chargé: {} documents depuis {}", store.documents.len(), persist_path.display());
+            log::info!(
+                "DocStore chargé: {} documents depuis {}",
+                store.documents.len(),
+                persist_path.display()
+            );
         }
 
         Ok(store)
@@ -84,12 +87,7 @@ impl DocStore {
     /// Ajoute un document avec métadonnées optionnelles.
     ///
     /// L'embedding est calculé automatiquement via le MiniLLM char-level.
-    pub fn add(
-        &mut self,
-        id: &str,
-        text: &str,
-        metadata: HashMap<String, serde_json::Value>,
-    ) {
+    pub fn add(&mut self, id: &str, text: &str, metadata: HashMap<String, serde_json::Value>) {
         // Supprimer l'ancien document avec le même ID s'il existe
         self.remove(id);
 
@@ -136,11 +134,7 @@ impl DocStore {
     /// Recherche sémantique : retourne les `top_k` documents les plus similaires.
     ///
     /// Retourne une liste de (ID, score de similarité cosinus, métadonnées).
-    pub fn search(
-        &mut self,
-        query: &str,
-        top_k: usize,
-    ) -> Vec<SearchResult> {
+    pub fn search(&mut self, query: &str, top_k: usize) -> Vec<SearchResult> {
         let q_vec = self.engine.embed(query);
         self.search_by_vector(&q_vec, top_k)
     }
@@ -160,11 +154,7 @@ impl DocStore {
     }
 
     /// Recherche par vecteur d'embedding pré-calculé.
-    pub fn search_by_vector(
-        &self,
-        query_vector: &[f32],
-        top_k: usize,
-    ) -> Vec<SearchResult> {
+    pub fn search_by_vector(&self, query_vector: &[f32], top_k: usize) -> Vec<SearchResult> {
         let mut scored: Vec<(usize, f32)> = self
             .documents
             .iter()
@@ -207,9 +197,9 @@ impl DocStore {
             .iter()
             .enumerate()
             .filter(|(_, doc)| {
-                filter.iter().all(|(k, v)| {
-                    doc.metadata.get(k).map(|mv| mv == v).unwrap_or(false)
-                })
+                filter
+                    .iter()
+                    .all(|(k, v)| doc.metadata.get(k).map(|mv| mv == v).unwrap_or(false))
             })
             .map(|(idx, doc)| {
                 let sim = PaperEmbeddingEngine::similarity(&q_vec, &doc.embedding);
@@ -236,13 +226,16 @@ impl DocStore {
     /// Sauvegarde tous les documents sur le disque (si un chemin de persistance est configuré).
     pub fn persist(&self) -> std::io::Result<()> {
         if let Some(ref path) = self.persist_path {
-            let json = serde_json::to_string_pretty(&self.documents)
-                .unwrap_or_default();
+            let json = serde_json::to_string_pretty(&self.documents).unwrap_or_default();
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(path, json)?;
-            log::info!("DocStore persisté: {} documents -> {}", self.documents.len(), path.display());
+            log::info!(
+                "DocStore persisté: {} documents -> {}",
+                self.documents.len(),
+                path.display()
+            );
         }
         Ok(())
     }
@@ -283,11 +276,19 @@ mod tests {
 
         let mut meta1 = HashMap::new();
         meta1.insert("domain".to_string(), serde_json::json!("RL"));
-        store.add("paper-1", "deep reinforcement learning with Q-networks", meta1);
+        store.add(
+            "paper-1",
+            "deep reinforcement learning with Q-networks",
+            meta1,
+        );
 
         let mut meta2 = HashMap::new();
         meta2.insert("domain".to_string(), serde_json::json!("GNN"));
-        store.add("paper-2", "graph convolutional networks for node classification", meta2);
+        store.add(
+            "paper-2",
+            "graph convolutional networks for node classification",
+            meta2,
+        );
 
         let results = store.search("reinforcement learning", 2);
         assert_eq!(results.len(), 2);

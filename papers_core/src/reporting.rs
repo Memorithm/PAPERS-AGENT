@@ -18,12 +18,30 @@ impl ReportGenerator {
         md.push_str(&format!("title: {}\n", doc.title));
         md.push_str(&format!("authors: {}\n", doc.authors.join(", ")));
         md.push_str(&format!("source: {}\n", doc.source));
-        md.push_str(&format!("date: {}\n", doc.publication_date.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("integration_score: {:.2}\n", report.integration_score));
-        md.push_str(&format!("reproducibility_score: {:.2}\n", report.reproducibility_score));
-        md.push_str(&format!("recommendation: {}\n", report.recommendation.label()));
-        md.push_str(&format!("github: {}\n", doc.github_url.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("paper_url: {}\n", doc.paper_url.as_deref().unwrap_or("N/A")));
+        md.push_str(&format!(
+            "date: {}\n",
+            doc.publication_date.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "integration_score: {:.2}\n",
+            report.integration_score
+        ));
+        md.push_str(&format!(
+            "reproducibility_score: {:.2}\n",
+            report.reproducibility_score
+        ));
+        md.push_str(&format!(
+            "recommendation: {}\n",
+            report.recommendation.label()
+        ));
+        md.push_str(&format!(
+            "github: {}\n",
+            doc.github_url.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "paper_url: {}\n",
+            doc.paper_url.as_deref().unwrap_or("N/A")
+        ));
         md.push_str("---\n\n");
 
         // Résumé exécutif
@@ -86,22 +104,37 @@ impl ReportGenerator {
         md.push_str("## Analyse Système\n\n");
         md.push_str("| Ressource | Valeur |\n");
         md.push_str("|-----------|--------|\n");
-        md.push_str(&format!("| VRAM | {} |\n", sys.vram.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("| RAM | {} |\n", sys.ram.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("| I/O disque | {} |\n", sys.disk.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("| Latence | {} |\n", sys.latency.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("| Débit | {} |\n", sys.throughput.as_deref().unwrap_or("N/A")));
-        md.push_str(&format!("| Scalabilité | {} |\n", sys.scalability.as_deref().unwrap_or("N/A")));
+        md.push_str(&format!(
+            "| VRAM | {} |\n",
+            sys.vram.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "| RAM | {} |\n",
+            sys.ram.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "| I/O disque | {} |\n",
+            sys.disk.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "| Latence | {} |\n",
+            sys.latency.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "| Débit | {} |\n",
+            sys.throughput.as_deref().unwrap_or("N/A")
+        ));
+        md.push_str(&format!(
+            "| Scalabilité | {} |\n",
+            sys.scalability.as_deref().unwrap_or("N/A")
+        ));
         md.push('\n');
 
         // Risques
         if !report.risks.is_empty() {
             md.push_str("## Risques\n\n");
             for risk in &report.risks {
-                md.push_str(&format!(
-                    "- **{}**: {}",
-                    risk.level, risk.description
-                ));
+                md.push_str(&format!("- **{}**: {}", risk.level, risk.description));
                 if let Some(ref mitigation) = risk.mitigation {
                     md.push_str(&format!(" (Atténuation: {})", mitigation));
                 }
@@ -195,7 +228,10 @@ impl ReportGenerator {
 
         // Footer
         md.push_str("---\n");
-        md.push_str(&format!("*Rapport généré le {} par PAPERS V2 (Rust)*\n", report.timestamp));
+        md.push_str(&format!(
+            "*Rapport généré le {} par PAPERS V2 (Rust)*\n",
+            report.timestamp
+        ));
 
         md
     }
@@ -226,8 +262,14 @@ impl ReportGenerator {
         md.push_str(&format!("| Rounds | {} |\n", result.total_rounds));
         md.push_str(&format!("| Candidats | {} |\n", result.total_candidates));
         md.push_str(&format!("| Durée | {:.1}s |\n", result.total_time_secs));
-        md.push_str(&format!("| Arrêt précoce | {} |\n", if result.stopped_early { "oui" } else { "non" }));
-        md.push_str(&format!("| Succès | {} |\n", if result.success { "oui" } else { "non" }));
+        md.push_str(&format!(
+            "| Arrêt précoce | {} |\n",
+            if result.stopped_early { "oui" } else { "non" }
+        ));
+        md.push_str(&format!(
+            "| Succès | {} |\n",
+            if result.success { "oui" } else { "non" }
+        ));
         md.push('\n');
 
         if let Some(ref node) = result.best_node {
@@ -239,8 +281,10 @@ impl ReportGenerator {
 
             if !node.results.is_empty() {
                 md.push_str("## Résultats d'Évaluation\n\n");
-                md.push_str(&format!("```json\n{}\n```\n",
-                    serde_json::to_string_pretty(&node.results).unwrap_or_default()));
+                md.push_str(&format!(
+                    "```json\n{}\n```\n",
+                    serde_json::to_string_pretty(&node.results).unwrap_or_default()
+                ));
             }
         }
 

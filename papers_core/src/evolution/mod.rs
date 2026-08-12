@@ -1,6 +1,6 @@
-pub mod researcher;
-pub mod engineer;
 pub mod analyzer;
+pub mod engineer;
+pub mod researcher;
 
 use std::time::Instant;
 
@@ -30,8 +30,7 @@ impl EvolutionLoop {
             database: Database::new(&sampler_name),
             cognition: CognitionStore::new(),
             researcher: Researcher::new(&task),
-            engineer: Engineer::new(3600)
-                .with_wasm(crate::wasm_executor::WasmConfig::default()),
+            engineer: Engineer::new(3600).with_wasm(crate::wasm_executor::WasmConfig::default()),
         }
     }
 
@@ -44,11 +43,7 @@ impl EvolutionLoop {
     /// A candidate contributes to selection only when its evaluator reports
     /// `success=true`. Structural/sandbox refusals may expose diagnostic scores,
     /// but those scores are never interpreted as empirical fitness.
-    pub fn run_advanced(
-        &mut self,
-        llm: &LlmClient,
-        task_description: &str,
-    ) -> EvolutionResult {
+    pub fn run_advanced(&mut self, llm: &LlmClient, task_description: &str) -> EvolutionResult {
         let start = Instant::now();
         let mut best_score = 0.0_f64;
         let mut best_node: Option<Node> = None;
@@ -103,17 +98,12 @@ impl EvolutionLoop {
 
                 total_candidates += 1;
 
-                let mut node = Node::new(
-                    output.motivation.clone(),
-                    output.program.clone(),
-                    fitness,
-                );
+                let mut node =
+                    Node::new(output.motivation.clone(), output.program.clone(), fitness);
                 node.results
                     .insert("success".into(), serde_json::Value::Bool(result.success));
-                node.results.insert(
-                    "fitness".into(),
-                    serde_json::json!(fitness),
-                );
+                node.results
+                    .insert("fitness".into(), serde_json::json!(fitness));
                 node.results.insert(
                     "diagnostic_score".into(),
                     serde_json::json!(diagnostic_score),
@@ -143,12 +133,8 @@ impl EvolutionLoop {
 
                 let cognition_update = {
                     let analyzer = Analyzer::new(&self.config.sampling_policy);
-                    let analysis = analyzer.analyze(
-                        llm,
-                        &output.motivation,
-                        &output.program,
-                        &result,
-                    );
+                    let analysis =
+                        analyzer.analyze(llm, &output.motivation, &output.program, &result);
                     analysis.cognition_update
                 };
 
@@ -183,9 +169,9 @@ impl EvolutionLoop {
             best_score,
             best_node,
             total_rounds: if stopped_early {
-                self.config.max_rounds.min(
-                    (total_candidates / self.config.n_candidates_per_round.max(1)) + 1,
-                )
+                self.config
+                    .max_rounds
+                    .min((total_candidates / self.config.n_candidates_per_round.max(1)) + 1)
             } else {
                 self.config.max_rounds
             },
@@ -264,9 +250,9 @@ impl EvolutionLoop {
             best_score,
             best_node,
             total_rounds: if stopped_early {
-                self.config.max_rounds.min(
-                    (total_candidates / self.config.n_candidates_per_round.max(1)) + 1,
-                )
+                self.config
+                    .max_rounds
+                    .min((total_candidates / self.config.n_candidates_per_round.max(1)) + 1)
             } else {
                 self.config.max_rounds
             },

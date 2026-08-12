@@ -193,7 +193,9 @@ impl ExperimentProposal {
             || self.intervention.trim().is_empty()
             || self.baseline.trim().is_empty()
         {
-            return Err("proposal id, hypothesis, target, intervention and baseline are required".into());
+            return Err(
+                "proposal id, hypothesis, target, intervention and baseline are required".into(),
+            );
         }
         if self.repetitions == 0 {
             return Err("proposal repetitions must be >= 1".into());
@@ -297,7 +299,11 @@ impl ScientificBundle {
                 paper_id: report.document.id.clone(),
                 kind: ClaimKind::Contribution,
                 statement: statement.to_string(),
-                state: if model_backed { ClaimState::Inferred } else { ClaimState::Reported },
+                state: if model_backed {
+                    ClaimState::Inferred
+                } else {
+                    ClaimState::Reported
+                },
                 evidence: vec![EvidenceSpan::analysis_field(
                     format!("analysis.contributions[{index}]"),
                     statement,
