@@ -10,11 +10,7 @@ pub struct GreedySampler;
 impl Sampler for GreedySampler {
     fn sample(&self, nodes: &[Node], n: usize) -> Vec<Node> {
         let mut sorted: Vec<&Node> = nodes.iter().collect();
-        sorted.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         sorted.into_iter().take(n).cloned().collect()
     }
 }
@@ -52,10 +48,7 @@ impl Sampler for UCB1Sampler {
         }
 
         let min_score = scored.iter().map(|n| n.score).fold(f64::INFINITY, f64::min);
-        let max_score = scored
-            .iter()
-            .map(|n| n.score)
-            .fold(f64::NEG_INFINITY, f64::max);
+        let max_score = scored.iter().map(|n| n.score).fold(f64::NEG_INFINITY, f64::max);
         let score_range = if (max_score - min_score).abs() < 1e-10 {
             1.0
         } else {
@@ -70,8 +63,8 @@ impl Sampler for UCB1Sampler {
                     (i, f64::INFINITY)
                 } else {
                     let normalized = (node.score - min_score) / score_range;
-                    let exploration =
-                        self.c * ((total_visits as f64).ln() / node.visit_count as f64).sqrt();
+                    let exploration = self.c
+                        * ((total_visits as f64).ln() / node.visit_count as f64).sqrt();
                     (i, normalized + exploration)
                 }
             })
@@ -122,11 +115,7 @@ impl Sampler for IslandSampler {
                 selected.push(nodes[idx].clone());
             } else {
                 let mut sorted: Vec<&Node> = nodes.iter().collect();
-                sorted.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
                 selected.push(sorted[0].clone());
             }
         }

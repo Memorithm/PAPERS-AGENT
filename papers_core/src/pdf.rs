@@ -1,11 +1,11 @@
 //! Enhanced PDF export — generates structured PDF reports with sections,
 //! tables, code blocks, and equation rendering using a minimal PDF writer.
 
-use anyhow::Result;
 use std::io::Write;
+use anyhow::Result;
 
 /// Dimensions and layout constants.
-const PAGE_WIDTH: f64 = 595.0; // A4 in points
+const PAGE_WIDTH: f64 = 595.0;  // A4 in points
 const PAGE_HEIGHT: f64 = 842.0;
 const MARGIN_LEFT: f64 = 50.0;
 const MARGIN_RIGHT: f64 = 50.0;
@@ -25,34 +25,10 @@ pub struct PdfDocument {
 
 #[derive(Debug, Clone)]
 enum PdfObject {
-    Text {
-        content: String,
-        x: f64,
-        y: f64,
-        font_size: f64,
-        bold: bool,
-        page: usize,
-    },
-    Line {
-        x1: f64,
-        y1: f64,
-        x2: f64,
-        y2: f64,
-        page: usize,
-    },
-    Table {
-        headers: Vec<String>,
-        rows: Vec<Vec<String>>,
-        x: f64,
-        y: f64,
-        page: usize,
-    },
-    CodeBlock {
-        content: String,
-        x: f64,
-        y: f64,
-        page: usize,
-    },
+    Text { content: String, x: f64, y: f64, font_size: f64, bold: bool, page: usize },
+    Line { x1: f64, y1: f64, x2: f64, y2: f64, page: usize },
+    Table { headers: Vec<String>, rows: Vec<Vec<String>>, x: f64, y: f64, page: usize },
+    CodeBlock { content: String, x: f64, y: f64, page: usize },
 }
 
 impl PdfDocument {
@@ -187,85 +163,47 @@ impl PdfDocument {
             stream.push_str("BT\n");
             for obj in objects {
                 match obj {
-                    PdfObject::Text {
-                        content,
-                        x,
-                        y,
-                        font_size,
-                        bold,
-                        ..
-                    } => {
+                    PdfObject::Text { content, x, y, font_size, bold, .. } => {
                         let font = if *bold { "/F2" } else { "/F1" };
-                        stream.push_str(&format!(
-                            "{} {} Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
-                            font,
-                            font_size,
-                            x,
-                            y,
-                            escape_pdf_string(content)
-                        ));
+                        stream.push_str(&format!("{} {} Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
+                            font, font_size, x, y, escape_pdf_string(content)));
                     }
                     PdfObject::Line { x1, y1, x2, y2, .. } => {
-                        stream.push_str(&format!("{} {} m {} {} l S\n", x1, y1, x2, y2));
+                        stream.push_str(&format!(
+                            "{} {} m {} {} l S\n", x1, y1, x2, y2));
                     }
-                    PdfObject::Table {
-                        headers,
-                        rows,
-                        x,
-                        y,
-                        ..
-                    } => {
+                    PdfObject::Table { headers, rows, x, y, .. } => {
                         let num_cols = headers.len();
                         let col_width = (PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT) / num_cols as f64;
 
                         for (i, h) in headers.iter().enumerate() {
-                            stream.push_str(&format!(
-                                "/F2 10 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
-                                x + i as f64 * col_width,
-                                y,
-                                escape_pdf_string(h)
-                            ));
+                            stream.push_str(&format!("/F2 10 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
+                                x + i as f64 * col_width, y,
+                                escape_pdf_string(h)));
                         }
                         let line_y = y - LINE_HEIGHT / 2.0;
-                        stream.push_str(&format!(
-                            "{} {} m {} {} l S\n",
-                            x,
-                            line_y,
-                            x + num_cols as f64 * col_width,
-                            line_y
-                        ));
+                        stream.push_str(&format!("{} {} m {} {} l S\n",
+                            x, line_y, x + num_cols as f64 * col_width, line_y));
 
                         for (r, row) in rows.iter().enumerate() {
                             let row_y = y - (r + 2) as f64 * LINE_HEIGHT;
                             for (i, cell) in row.iter().enumerate() {
-                                stream.push_str(&format!(
-                                    "/F1 9 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
-                                    x + i as f64 * col_width,
-                                    row_y,
-                                    escape_pdf_string(cell)
-                                ));
+                                stream.push_str(&format!("/F1 9 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
+                                    x + i as f64 * col_width, row_y,
+                                    escape_pdf_string(cell)));
                             }
                         }
                     }
                     PdfObject::CodeBlock { content, x, y, .. } => {
-                        stream.push_str(&format!(
-                            "/F3 8 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
-                            *x,
-                            *y,
-                            escape_pdf_string(content)
-                        ));
+                        stream.push_str(&format!("/F3 8 Tf 1 0 0 1 {} {} Tm ({}) Tj\n",
+                            *x, *y, escape_pdf_string(content)));
                     }
                 }
             }
             stream.push_str("ET\n");
         }
 
-        self.render_two_pass(
-            &page_streams,
-            num_pages,
-            &page_object_ids,
-            &content_object_ids,
-        )
+        self.render_two_pass(&page_streams, num_pages, &page_object_ids, &content_object_ids)
     }
 
     fn render_two_pass(
@@ -286,41 +224,28 @@ impl PdfDocument {
 
         // Object 2: Pages — we know all page IDs now
         object_offsets.push(buf.len());
-        let kids: String = page_object_ids
-            .iter()
+        let kids: String = page_object_ids.iter()
             .map(|id| format!("{} 0 R", id))
             .collect::<Vec<_>>()
             .join(" ");
-        writeln!(
-            buf,
-            "2 0 obj<</Type/Pages/Kids[{}]/Count {}>>endobj",
-            kids, num_pages
-        )?;
+        writeln!(buf, "2 0 obj<</Type/Pages/Kids[{}]/Count {}>>endobj", kids, num_pages)?;
 
         // Page objects
         for i in 0..num_pages {
             object_offsets.push(buf.len());
-            writeln!(
-                buf,
-                "{} 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 {} {}]/\
+            writeln!(buf, "{} 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 {} {}]/\
                 Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>\
                 /F2<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold>>\
                 /F3<</Type/Font/Subtype/Type1/BaseFont/Courier>>>>>>\
                 /Contents {} 0 R>>endobj",
-                page_object_ids[i], PAGE_WIDTH, PAGE_HEIGHT, content_object_ids[i]
-            )?;
+                page_object_ids[i], PAGE_WIDTH, PAGE_HEIGHT, content_object_ids[i])?;
         }
 
         // Content streams
         for i in 0..num_pages {
             let stream_bytes = page_streams[i].as_bytes();
             object_offsets.push(buf.len());
-            writeln!(
-                buf,
-                "{} 0 obj<</Length {}>>stream",
-                content_object_ids[i],
-                stream_bytes.len()
-            )?;
+            writeln!(buf, "{} 0 obj<</Length {}>>stream", content_object_ids[i], stream_bytes.len())?;
             buf.write_all(stream_bytes)?;
             writeln!(buf)?;
             writeln!(buf, "endstream")?;
@@ -364,10 +289,7 @@ impl PdfDocument {
         doc.add_title(title);
         doc.add_text(&format!("Authors: {}", authors.join(", ")));
         doc.add_text(&format!("Source: {}", source));
-        doc.add_text(&format!(
-            "Integration Score: {:.2} — Recommendation: {}",
-            score, recommendation
-        ));
+        doc.add_text(&format!("Integration Score: {:.2} — Recommendation: {}", score, recommendation));
         doc.add_divider();
 
         doc.add_header("Executive Summary");
@@ -401,10 +323,7 @@ impl PdfDocument {
         }
 
         doc.add_divider();
-        doc.add_text(&format!(
-            "Generated by PAPERS V2 — {}",
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-        ));
+        doc.add_text(&format!("Generated by PAPERS V2 — {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
 
         doc.render()
     }
@@ -495,10 +414,7 @@ mod tests {
 
     #[test]
     fn test_escape_pdf_string() {
-        assert_eq!(
-            escape_pdf_string("test (parens) \\ slash"),
-            r"test \(parens\) \\ slash"
-        );
+        assert_eq!(escape_pdf_string("test (parens) \\ slash"), r"test \(parens\) \\ slash");
     }
 
     #[test]
@@ -519,13 +435,10 @@ mod tests {
     #[test]
     fn test_add_table_produces_valid_pdf() {
         let mut doc = PdfDocument::new();
-        doc.add_table(
-            &["Name", "Score"],
-            &[
-                vec!["Alice".to_string(), "95".to_string()],
-                vec!["Bob".to_string(), "87".to_string()],
-            ],
-        );
+        doc.add_table(&["Name", "Score"], &[
+            vec!["Alice".to_string(), "95".to_string()],
+            vec!["Bob".to_string(), "87".to_string()],
+        ]);
         let result = doc.render();
         assert!(result.is_ok());
         let bytes = result.unwrap();

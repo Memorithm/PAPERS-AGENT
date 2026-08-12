@@ -107,7 +107,10 @@ impl PatternInduction {
         let scores: Vec<f64> = history.iter().map(|n| n.score).collect();
         for (i, w) in scores.windows(3).enumerate() {
             if w[0] <= w[1] && w[1] <= w[2] {
-                let ids: Vec<usize> = history[i..i + 3].iter().filter_map(|n| n.id).collect();
+                let ids: Vec<usize> = history[i..i + 3]
+                    .iter()
+                    .filter_map(|n| n.id)
+                    .collect();
                 self.patterns.push(Pattern {
                     id: format!("conv_{}", ids.first().unwrap_or(&0)),
                     signature: "monotonic_improvement".into(),

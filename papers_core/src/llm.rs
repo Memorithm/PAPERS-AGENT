@@ -61,18 +61,13 @@ impl LlmClient {
         }
     }
 
-    pub fn generate_json(
-        &self,
-        prompt: &str,
-        system: Option<&str>,
-    ) -> Result<serde_json::Value, String> {
+    pub fn generate_json(&self, prompt: &str, system: Option<&str>) -> Result<serde_json::Value, String> {
         let raw = self.generate(prompt, system)?;
         serde_json::from_str(&raw).or_else(|_| {
             // Try to extract JSON from markdown
             if let Some(start) = raw.find('{') {
                 if let Some(end) = raw.rfind('}') {
-                    serde_json::from_str(&raw[start..=end])
-                        .map_err(|e| format!("JSON parse: {}", e))
+                    serde_json::from_str(&raw[start..=end]).map_err(|e| format!("JSON parse: {}", e))
                 } else {
                     Err("No closing brace".into())
                 }
@@ -103,7 +98,8 @@ impl LlmClient {
             .send()
             .map_err(|e| format!("Ollama request failed: {}", e))?;
 
-        let data: serde_json::Value = response.json().map_err(|e| format!("Parse error: {}", e))?;
+        let data: serde_json::Value =
+            response.json().map_err(|e| format!("Parse error: {}", e))?;
         let text = data["response"].as_str().unwrap_or("");
         let thinking = data["thinking"].as_str().unwrap_or("");
         Ok(if text.is_empty() { thinking } else { text }.to_string())
@@ -131,7 +127,8 @@ impl LlmClient {
             .send()
             .map_err(|e| format!("OpenAI request failed: {}", e))?;
 
-        let data: serde_json::Value = response.json().map_err(|e| format!("Parse error: {}", e))?;
+        let data: serde_json::Value =
+            response.json().map_err(|e| format!("Parse error: {}", e))?;
         Ok(data["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")

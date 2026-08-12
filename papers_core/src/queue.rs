@@ -1,10 +1,10 @@
 //! Queue pattern — priority-based work queue, result queue, channel abstractions,
 //! and backpressure mechanism for the PAPERS pipeline.
 
-use parking_lot::Mutex;
-use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::cmp::Ordering;
 use std::time::{Duration, Instant};
+use parking_lot::Mutex;
 
 // ── Priority-based work queue ──────────────────────────────────
 
@@ -88,7 +88,10 @@ impl<T> WorkQueue<T> {
                 return Err("Work queue full — apply backpressure".into());
             }
             // Drain expired items and retry
-            *heap = heap.drain().filter(|i| !i.is_stale()).collect();
+            *heap = heap
+                .drain()
+                .filter(|i| !i.is_stale())
+                .collect();
             if heap.len() >= self.max_size {
                 return Err("Work queue still full after stale eviction".into());
             }
@@ -303,22 +306,9 @@ mod tests {
     #[test]
     fn test_work_queue_priority() {
         let q = WorkQueue::<String>::new(10, Duration::from_secs(60));
-        q.push(WorkItem::new("a", "low".into(), 1, Duration::from_secs(60)))
-            .unwrap();
-        q.push(WorkItem::new(
-            "b",
-            "high".into(),
-            10,
-            Duration::from_secs(60),
-        ))
-        .unwrap();
-        q.push(WorkItem::new(
-            "c",
-            "medium".into(),
-            5,
-            Duration::from_secs(60),
-        ))
-        .unwrap();
+        q.push(WorkItem::new("a", "low".into(), 1, Duration::from_secs(60))).unwrap();
+        q.push(WorkItem::new("b", "high".into(), 10, Duration::from_secs(60))).unwrap();
+        q.push(WorkItem::new("c", "medium".into(), 5, Duration::from_secs(60))).unwrap();
 
         assert_eq!(q.pop().unwrap().payload, "high");
         assert_eq!(q.pop().unwrap().payload, "medium");

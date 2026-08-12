@@ -62,20 +62,11 @@ impl Analyzer {
         let metrics_str = serde_json::to_string(&result.metrics).unwrap_or_default();
 
         let prompt = ANALYZER_PROMPT
-            .replace(
-                "{motivation}",
-                &motivation.chars().take(1500).collect::<String>(),
-            )
-            .replace(
-                "{program_summary}",
-                &program.chars().take(2000).collect::<String>(),
-            )
+            .replace("{motivation}", &motivation.chars().take(1500).collect::<String>())
+            .replace("{program_summary}", &program.chars().take(2000).collect::<String>())
             .replace("{score}", &result.score.to_string())
             .replace("{success}", &result.success.to_string())
-            .replace(
-                "{metrics}",
-                &metrics_str.chars().take(1500).collect::<String>(),
-            )
+            .replace("{metrics}", &metrics_str.chars().take(1500).collect::<String>())
             .replace("{runtime_seconds}", &result.runtime_secs.to_string());
 
         match llm.generate_json(&prompt, Some(ANALYZER_SYSTEM)) {
@@ -99,18 +90,10 @@ impl Analyzer {
                     .unwrap_or(5.0);
 
                 AnalysisOutput {
-                    summary: json
-                        .get("summary")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
+                    summary: json.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     strengths: extract_list("strengths"),
                     weaknesses: extract_list("weaknesses"),
-                    root_cause: json
-                        .get("root_cause")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
+                    root_cause: json.get("root_cause").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     actionable_insights: extract_list("actionable_insights"),
                     novelty_score: novelty,
                     cognition_update: Self::build_cognition(
@@ -137,22 +120,20 @@ impl Analyzer {
     fn heuristic_analysis(result: &EngineerOutput) -> AnalysisOutput {
         let summary = format!(
             "Experiment {} with score {:.4}. {}",
-            if result.success {
-                "succeeded"
-            } else {
-                "failed"
-            },
+            if result.success { "succeeded" } else { "failed" },
             result.score,
             result.error.as_deref().unwrap_or("No errors reported.")
         );
         let cognition = Self::build_cognition(
             &summary,
-            &[if result.error.is_some() {
-                "Fix implementation issues and resubmit."
-            } else {
-                "Consider architectural improvements for higher score."
-            }
-            .into()],
+            &[
+                if result.error.is_some() {
+                    "Fix implementation issues and resubmit."
+                } else {
+                    "Consider architectural improvements for higher score."
+                }
+                .into(),
+            ],
         );
 
         AnalysisOutput {
@@ -166,16 +147,15 @@ impl Analyzer {
                 Some(e) => vec![format!("Error: {}", e)],
                 None => vec!["Score below threshold".into()],
             },
-            root_cause: result
-                .error
-                .clone()
-                .unwrap_or_else(|| "Insufficient data".into()),
-            actionable_insights: vec![if result.error.is_some() {
-                "Fix implementation issues and resubmit."
-            } else {
-                "Consider architectural improvements for higher score."
-            }
-            .into()],
+            root_cause: result.error.clone().unwrap_or_else(|| "Insufficient data".into()),
+            actionable_insights: vec![
+                if result.error.is_some() {
+                    "Fix implementation issues and resubmit."
+                } else {
+                    "Consider architectural improvements for higher score."
+                }
+                .into(),
+            ],
             novelty_score: 5.0,
             cognition_update: cognition,
         }

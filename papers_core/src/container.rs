@@ -333,7 +333,8 @@ mod tests {
 
     #[test]
     fn test_cache_insert_and_get() {
-        let mut cache: CacheContainer<&str, i32> = CacheContainer::new(5, Duration::from_secs(60));
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::from_secs(60));
         cache.insert("key1", 42);
         cache.insert("key2", 100);
 
@@ -345,7 +346,8 @@ mod tests {
 
     #[test]
     fn test_cache_prune_expired() {
-        let mut cache: CacheContainer<&str, i32> = CacheContainer::new(5, Duration::ZERO);
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::ZERO);
         cache.insert("a", 1);
         cache.insert("b", 2);
 
@@ -356,7 +358,8 @@ mod tests {
 
     #[test]
     fn test_cache_lru_eviction() {
-        let mut cache: CacheContainer<&str, i32> = CacheContainer::new(2, Duration::from_secs(60));
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(2, Duration::from_secs(60));
         cache.insert("a", 1);
         cache.insert("b", 2);
         cache.insert("c", 3); // should evict "a" (LRU)
@@ -369,7 +372,8 @@ mod tests {
 
     #[test]
     fn test_cache_is_empty() {
-        let mut cache: CacheContainer<&str, i32> = CacheContainer::new(5, Duration::from_secs(60));
+        let mut cache: CacheContainer<&str, i32> =
+            CacheContainer::new(5, Duration::from_secs(60));
         assert!(cache.is_empty());
         cache.insert("x", 1);
         assert!(!cache.is_empty());
@@ -393,18 +397,8 @@ mod tests {
     #[test]
     fn test_knowledge_tag_indexing() {
         let mut kc = KnowledgeContainer::new(10, Duration::from_secs(60));
-        kc.add(
-            "id1",
-            "content a",
-            "src",
-            vec!["rust".into(), "testing".into()],
-        );
-        kc.add(
-            "id2",
-            "content b",
-            "src",
-            vec!["rust".into(), "benchmark".into()],
-        );
+        kc.add("id1", "content a", "src", vec!["rust".into(), "testing".into()]);
+        kc.add("id2", "content b", "src", vec!["rust".into(), "benchmark".into()]);
 
         let results = kc.query("testing", 10);
         assert_eq!(results.len(), 1);

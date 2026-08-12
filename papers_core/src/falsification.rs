@@ -49,20 +49,14 @@ impl FalsificationEngine {
             if text.to_lowercase().contains(keyword) {
                 self.tests.push(FalsificationTest {
                     test_id: format!("{}_adv_{}", hypothesis_id, keyword),
-                    description: format!(
-                        "Falsification test: claim uses '{}' - find counterexample",
-                        keyword
-                    ),
+                    description: format!("Falsification test: claim uses '{}' - find counterexample", keyword),
                     hypothesis_id: hypothesis_id.into(),
                     adversarial: true,
                 });
             }
         }
 
-        let complexity = code
-            .lines()
-            .filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while "))
-            .count();
+        let complexity = code.lines().filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while ")).count();
         if complexity == 0 {
             self.tests.push(FalsificationTest {
                 test_id: format!("{}_complexity", hypothesis_id),
@@ -73,11 +67,7 @@ impl FalsificationEngine {
         }
     }
 
-    pub fn compute_falsifiability(
-        &self,
-        hypothesis_id: &str,
-        results: &[FalsificationResult],
-    ) -> f64 {
+    pub fn compute_falsifiability(&self, hypothesis_id: &str, results: &[FalsificationResult]) -> f64 {
         let relevant: Vec<&FalsificationResult> = results
             .iter()
             .filter(|r| r.test.hypothesis_id == hypothesis_id)

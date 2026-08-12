@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
+use crate::wasm_executor::{WasmExecutor, WasmConfig, WasmResult};
 
 /// Result of evaluating a candidate program.
 #[derive(Debug, Clone)]
@@ -26,10 +26,7 @@ pub struct Engineer {
 
 impl Engineer {
     pub fn new(timeout_secs: u64) -> Self {
-        Self {
-            timeout_secs,
-            wasm: None,
-        }
+        Self { timeout_secs, wasm: None }
     }
 
     /// Attach a WasmExecutor for sandboxed evaluation.
@@ -142,10 +139,9 @@ impl Engineer {
                 + if has_error_handling { 0.1 } else { 0.0 }
                 + if !has_unsafe { 0.05 } else { 0.0 };
             let complexity = (lines / 80.0).min(1.0) * 0.2;
-            let diversity =
-                ((fn_count + struct_count + enum_count + trait_count) as f64 / 5.0).min(1.0) * 0.2;
-            let quality =
-                if has_tests { 0.1 } else { 0.0 } + if has_trait_impls { 0.05 } else { 0.0 };
+            let diversity = ((fn_count + struct_count + enum_count + trait_count) as f64 / 5.0).min(1.0) * 0.2;
+            let quality = if has_tests { 0.1 } else { 0.0 }
+                + if has_trait_impls { 0.05 } else { 0.0 };
             let score = 0.2 + completeness + complexity + diversity + quality;
 
             EngineerOutput {
@@ -157,12 +153,8 @@ impl Engineer {
             }
         } else {
             let mut error = Vec::new();
-            if !has_fn {
-                error.push("No function definition found");
-            }
-            if !has_braces {
-                error.push("Missing braces");
-            }
+            if !has_fn { error.push("No function definition found"); }
+            if !has_braces { error.push("Missing braces"); }
             EngineerOutput {
                 success: false,
                 score: 0.1,
@@ -175,10 +167,8 @@ impl Engineer {
 
     /// Combined health-check + execution (backward-compatible).
     pub fn execute_simple(&self, program: &str) -> (bool, f64) {
-        let has_rust = program.contains("fn ")
-            || program.contains("struct ")
-            || program.contains("impl ")
-            || program.contains("use ");
+        let has_rust = program.contains("fn ") || program.contains("struct ")
+            || program.contains("impl ") || program.contains("use ");
         let has_braces = program.contains('{') && program.contains('}');
         let valid = has_rust && has_braces;
         let score = if valid {

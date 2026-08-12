@@ -46,13 +46,7 @@ impl VectorStore {
         let max_layer = 5;
         let max_elements = 1000;
         let ef_construction = 200;
-        let hnsw = Hnsw::new(
-            max_nb_connection,
-            max_elements,
-            max_layer,
-            ef_construction,
-            DistL2,
-        );
+        let hnsw = Hnsw::new(max_nb_connection, max_elements, max_layer, ef_construction, DistL2);
 
         Self {
             entries: HashMap::new(),
@@ -112,9 +106,7 @@ impl VectorStore {
 
         // Request extra results to compensate for filtered-out removed entries
         let ef_search = (top_k * 4).max(10);
-        let neighbours =
-            self.hnsw
-                .search(&q_vec, top_k.saturating_add(self.removed.len()), ef_search);
+        let neighbours = self.hnsw.search(&q_vec, top_k.saturating_add(self.removed.len()), ef_search);
 
         neighbours
             .iter()
@@ -235,11 +227,7 @@ mod tests {
         assert_eq!(results.len(), 2);
         for (idx, sim) in &results {
             assert!(*idx <= 2, "index {} out of bounds", idx);
-            assert!(
-                (-1.0..=1.0).contains(sim),
-                "similarity {} out of range",
-                sim
-            );
+            assert!((-1.0..=1.0).contains(sim), "similarity {} out of range", sim);
         }
     }
 

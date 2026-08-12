@@ -13,7 +13,7 @@ impl RustProbe {
     pub fn new(program: &str) -> Self {
         Self {
             program: program.to_string(),
-            cpu_limit: 10.0,     // Default 10 second CPU limit
+            cpu_limit: 10.0, // Default 10 second CPU limit
             memory_limit: 512.0, // Default 512 MB memory limit
         }
     }
@@ -45,10 +45,7 @@ impl RustProbe {
         let total_time = start_time.elapsed().as_secs_f64();
 
         if total_time > self.cpu_limit {
-            return Err(format!(
-                "Benchmark exceeded CPU limit of {}s",
-                self.cpu_limit
-            ));
+            return Err(format!("Benchmark exceeded CPU limit of {}s", self.cpu_limit));
         }
 
         let mut passed = 0;
@@ -195,10 +192,7 @@ impl RustProbe {
         let estimated_runtime = self.estimate_runtime();
 
         if estimated_runtime > self.cpu_limit {
-            return Err(format!(
-                "Estimated runtime {}s exceeds limit",
-                estimated_runtime
-            ));
+            return Err(format!("Estimated runtime {}s exceeds limit", estimated_runtime));
         }
 
         if complexity > 10000.0 {
@@ -236,8 +230,7 @@ impl RustProbe {
             }
 
             // Count function calls
-            let call_count = trimmed.matches('.').count() + trimmed.matches('(').count()
-                - trimmed.matches(')').count();
+            let call_count = trimmed.matches('.').count() + trimmed.matches('(').count() - trimmed.matches(')').count();
             complexity += call_count as f64 * 2.0;
 
             // Count lines of code
@@ -267,10 +260,7 @@ impl RustProbe {
         let estimated_memory = self.estimate_memory_usage();
 
         if estimated_memory > self.memory_limit {
-            return Err(format!(
-                "Estimated memory usage {}MB exceeds limit",
-                estimated_memory
-            ));
+            return Err(format!("Estimated memory usage {}MB exceeds limit", estimated_memory));
         }
 
         Ok(true)
@@ -344,10 +334,7 @@ impl RustProbe {
         }
 
         if cyclomatic_complexity > 50 {
-            return Err(format!(
-                "Cyclomatic complexity too high: {}",
-                cyclomatic_complexity
-            ));
+            return Err(format!("Cyclomatic complexity too high: {}", cyclomatic_complexity));
         }
 
         Ok(true)

@@ -78,15 +78,10 @@ impl Recommendation {
     }
 
     pub fn from_score(score: f64) -> Self {
-        if score <= 0.30 {
-            Self::Reject
-        } else if score <= 0.50 {
-            Self::Archive
-        } else if score <= 0.70 {
-            Self::Prototype
-        } else {
-            Self::Integrate
-        }
+        if score <= 0.30 { Self::Reject }
+        else if score <= 0.50 { Self::Archive }
+        else if score <= 0.70 { Self::Prototype }
+        else { Self::Integrate }
     }
 }
 
@@ -164,11 +159,9 @@ impl PapersEngine {
         let abstract_text = document.abstract_text.as_deref().unwrap_or("");
 
         // Extraction heuristique de base
-        let parsed = document
-            .parsed
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| PaperParser::parse(text, Some(&document.title)));
+        let parsed = document.parsed.as_ref().cloned().unwrap_or_else(|| {
+            PaperParser::parse(text, Some(&document.title))
+        });
 
         // Analyse LLM si disponible
         let (summary, contributions, arch, deep, exp, pseudo) = if let Some(ref llm) = self.llm {
@@ -178,8 +171,11 @@ impl PapersEngine {
                 document: document.clone(),
                 ..Self::empty_report(document, &parsed)
             });
-            let summary =
-                analyzer.analyze_executive_summary(&document.title, abstract_text, &contributions);
+            let summary = analyzer.analyze_executive_summary(
+                &document.title,
+                abstract_text,
+                &contributions,
+            );
 
             // Analyses LLM enrichies
             let arch = analyzer.analyze_architecture(&AnalysisReport {
@@ -191,8 +187,9 @@ impl PapersEngine {
             let deep = analyzer.analyze_deep(&document.title, abstract_text, text);
             let exp = analyzer.analyze_experiment(&document.title, abstract_text, &contributions);
             let math = analyzer.analyze_mathematical(text);
-            let pseudo =
-                analyzer.analyze_pseudocode(&document.title, abstract_text, &contributions, &math);
+            let pseudo = analyzer.analyze_pseudocode(
+                &document.title, abstract_text, &contributions, &math,
+            );
 
             (summary, contributions, arch, deep, exp, pseudo)
         } else {
@@ -226,11 +223,7 @@ impl PapersEngine {
 
         AnalysisReport {
             equations: parsed.equations.clone(),
-            variables: parsed
-                .variables
-                .iter()
-                .map(|v| (v.name.clone(), v.meaning.clone()))
-                .collect(),
+            variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
             algorithms: heuristic.extract_algo_descs(),
             system_requirements: heuristic.system.clone(),
             risks: heuristic.risks.clone(),
@@ -269,28 +262,16 @@ impl PapersEngine {
 
     /// Rapport vide avec les champs obligatoires remplis (utile pour les
     /// appels intermédiaires à l'analyseur LLM).
-    fn empty_report(
-        document: &ExtractedDocument,
-        parsed: &crate::paper_parser::ParsedPaper,
-    ) -> AnalysisReport {
+    fn empty_report(document: &ExtractedDocument, parsed: &crate::paper_parser::ParsedPaper) -> AnalysisReport {
         AnalysisReport {
             document: document.clone(),
             contributions: Vec::new(),
             executive_summary: String::new(),
             equations: parsed.equations.clone(),
-            variables: parsed
-                .variables
-                .iter()
-                .map(|v| (v.name.clone(), v.meaning.clone()))
-                .collect(),
+            variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
             algorithms: Vec::new(),
             system_requirements: SystemRequirements {
-                vram: None,
-                ram: None,
-                disk: None,
-                latency: None,
-                throughput: None,
-                scalability: None,
+                vram: None, ram: None, disk: None, latency: None, throughput: None, scalability: None,
             },
             risks: Vec::new(),
             recommendation: Recommendation::Reject,

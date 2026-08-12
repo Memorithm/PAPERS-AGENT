@@ -36,23 +36,12 @@ impl MathematicalAnalyzer {
             .collect();
 
         let loss_kws = [
-            "loss",
-            "perte",
-            "objective",
-            "coût",
-            "coût",
-            "L =",
-            "\\mathcal{L}",
+            "loss", "perte", "objective", "coût", "coût", "L =", "\\mathcal{L}",
         ];
         let losses = Self::extract_sentences_by_keywords(text, &loss_kws, 10);
 
         let transform_kws = [
-            "transformation",
-            "mapping",
-            "projection",
-            "embedding",
-            "encode",
-            "decode",
+            "transformation", "mapping", "projection", "embedding", "encode", "decode",
         ];
         let transformations = Self::extract_sentences_by_keywords(text, &transform_kws, 10);
 
@@ -127,38 +116,14 @@ impl AlgorithmAnalyzer {
         let mut steps = Vec::new();
 
         let step_patterns = [
-            (
-                r"(?:first|initially|start)\b.{20,200}?(?:\.|;)",
-                "Initialisation",
-            ),
-            (
-                r"(?:then|next|subsequently|after\s+that)\b.{20,200}?(?:\.|;)",
-                "Étape principale",
-            ),
-            (
-                r"(?:finally|lastly|in\s+the\s+end)\b.{20,200}?(?:\.|;)",
-                "Finalisation",
-            ),
-            (
-                r"(?:step\s+\d+|phase\s+\d+|stage\s+\d+)\s*[:\-–—]?\s*.{20,200}?(?:\.|;)",
-                "Étape",
-            ),
-            (
-                r"(?:input|preprocess|normalize|tokenize)\b.{20,200}?(?:\.|;)",
-                "Prétraitement",
-            ),
-            (
-                r"(?:compute|calculate|estimate|evaluate|optimize)\b.{20,200}?(?:\.|;)",
-                "Calcul",
-            ),
-            (
-                r"(?:output|return|produce|generate|emit)\b.{20,200}?(?:\.|;)",
-                "Sortie",
-            ),
-            (
-                r"(?:update|iterate|loop|repeat|converge)\b.{20,200}?(?:\.|;)",
-                "Mise à jour",
-            ),
+            (r"(?:first|initially|start)\b.{20,200}?(?:\.|;)", "Initialisation"),
+            (r"(?:then|next|subsequently|after\s+that)\b.{20,200}?(?:\.|;)", "Étape principale"),
+            (r"(?:finally|lastly|in\s+the\s+end)\b.{20,200}?(?:\.|;)", "Finalisation"),
+            (r"(?:step\s+\d+|phase\s+\d+|stage\s+\d+)\s*[:\-–—]?\s*.{20,200}?(?:\.|;)", "Étape"),
+            (r"(?:input|preprocess|normalize|tokenize)\b.{20,200}?(?:\.|;)", "Prétraitement"),
+            (r"(?:compute|calculate|estimate|evaluate|optimize)\b.{20,200}?(?:\.|;)", "Calcul"),
+            (r"(?:output|return|produce|generate|emit)\b.{20,200}?(?:\.|;)", "Sortie"),
+            (r"(?:update|iterate|loop|repeat|converge)\b.{20,200}?(?:\.|;)", "Mise à jour"),
         ];
 
         for (pat, label) in &step_patterns {
@@ -212,13 +177,7 @@ impl AlgorithmAnalyzer {
 
         // Extract algorithmic phrases
         let lower = text.to_lowercase();
-        let algo_kw = [
-            "algorithm",
-            "pseudocode",
-            "procédure",
-            "procedure",
-            "function",
-        ];
+        let algo_kw = ["algorithm", "pseudocode", "procédure", "procedure", "function"];
         let mut lines = Vec::new();
 
         if let Ok(re_sent) = regex::Regex::new(r"[.!?]\s+") {
@@ -367,8 +326,7 @@ impl SystemAnalyzer {
         let params = param_count?;
 
         // fp32: 4 bytes/param, fp16: 2 bytes/param, int8: 1 byte/param
-        let precision = if text.contains("int4") || text.contains("4-bit") || text.contains("qlora")
-        {
+        let precision = if text.contains("int4") || text.contains("4-bit") || text.contains("qlora") {
             0.5
         } else if text.contains("int8") || text.contains("8-bit") {
             1.0
@@ -497,11 +455,7 @@ impl ArchitecturalMapping {
 pub struct HeuristicArchitecturalMapper;
 
 impl HeuristicArchitecturalMapper {
-    pub fn map(
-        document: &ExtractedDocument,
-        executive_summary: &str,
-        contributions: &[String],
-    ) -> ArchitecturalMapping {
+    pub fn map(document: &ExtractedDocument, executive_summary: &str, contributions: &[String]) -> ArchitecturalMapping {
         let text = [
             document.title.clone(),
             document.abstract_text.clone().unwrap_or_default(),
@@ -515,96 +469,14 @@ impl HeuristicArchitecturalMapper {
         let mut mapping = ArchitecturalMapping::empty();
 
         let keywords: Vec<(&str, Vec<&str>)> = vec![
-            (
-                "memory",
-                vec![
-                    "memory",
-                    "mémoire",
-                    "kv cache",
-                    "long-term memory",
-                    "retrieval",
-                    "rag",
-                    "store",
-                    "recall",
-                ],
-            ),
-            (
-                "perception",
-                vec![
-                    "perception",
-                    "embedding",
-                    "representation",
-                    "encoding",
-                    "encoder",
-                    "feature",
-                ],
-            ),
-            (
-                "planning",
-                vec![
-                    "planning",
-                    "planification",
-                    "plan",
-                    "search",
-                    "mcts",
-                    "tree",
-                    "subgoal",
-                ],
-            ),
-            (
-                "decision",
-                vec![
-                    "decision",
-                    "policy",
-                    "choix",
-                    "reasoning",
-                    "raisonnement",
-                    "inference",
-                ],
-            ),
-            (
-                "action",
-                vec![
-                    "action",
-                    "tool use",
-                    "act",
-                    "execution",
-                    "environment",
-                    "agent",
-                ],
-            ),
-            (
-                "learning",
-                vec![
-                    "learning",
-                    "apprentissage",
-                    "training",
-                    "fine-tuning",
-                    "distillation",
-                    "update",
-                ],
-            ),
-            (
-                "reflection",
-                vec![
-                    "reflection",
-                    "reflect",
-                    "self-correct",
-                    "self-evaluation",
-                    "introspection",
-                ],
-            ),
-            (
-                "evaluation",
-                vec![
-                    "evaluation",
-                    "eval",
-                    "benchmark",
-                    "metric",
-                    "reward",
-                    "score",
-                ],
-            ),
+            ("memory", vec!["memory", "mémoire", "kv cache", "long-term memory", "retrieval", "rag", "store", "recall"]),
+            ("perception", vec!["perception", "embedding", "representation", "encoding", "encoder", "feature"]),
+            ("planning", vec!["planning", "planification", "plan", "search", "mcts", "tree", "subgoal"]),
+            ("decision", vec!["decision", "policy", "choix", "reasoning", "raisonnement", "inference"]),
+            ("action", vec!["action", "tool use", "act", "execution", "environment", "agent"]),
+            ("learning", vec!["learning", "apprentissage", "training", "fine-tuning", "distillation", "update"]),
+            ("reflection", vec!["reflection", "reflect", "self-correct", "self-evaluation", "introspection"]),
+            ("evaluation", vec!["evaluation", "eval", "benchmark", "metric", "reward", "score"]),
         ];
 
         for (pillar, kws) in &keywords {
@@ -634,10 +506,7 @@ impl HeuristicArchitecturalMapper {
         if !mapping.perception.is_empty() {
             mapping.impacted_modules.push("perception_module".into());
         }
-        if !mapping.decision.is_empty()
-            || !mapping.planning.is_empty()
-            || !mapping.evaluation.is_empty()
-        {
+        if !mapping.decision.is_empty() || !mapping.planning.is_empty() || !mapping.evaluation.is_empty() {
             mapping.impacted_modules.push("reasoning_module".into());
         }
         if !mapping.planning.is_empty() {
@@ -707,15 +576,9 @@ impl ScoringEngine {
         let has_code = document
             .full_text
             .as_deref()
-            .map(|t| {
-                t.contains("```") || t.contains("fn ") || t.contains("def ") || t.contains("class ")
-            })
+            .map(|t| t.contains("```") || t.contains("fn ") || t.contains("def ") || t.contains("class "))
             .unwrap_or(false);
-        let has_full_text = document
-            .full_text
-            .as_deref()
-            .map(|t| t.len() > 10000)
-            .unwrap_or(false);
+        let has_full_text = document.full_text.as_deref().map(|t| t.len() > 10000).unwrap_or(false);
         let has_github = document.github_url.is_some();
 
         let documentation = if has_full_text { 0.8 } else { 0.5 };
@@ -725,17 +588,8 @@ impl ScoringEngine {
         0.4 * documentation + 0.3 * code_available + 0.3 * code_examples
     }
 
-    pub fn compute_integration(
-        document: &ExtractedDocument,
-        reproducibility: f64,
-        has_equations: bool,
-        has_references: bool,
-    ) -> f64 {
-        let code_avail = if document.github_url.is_some() {
-            0.3
-        } else {
-            0.0
-        };
+    pub fn compute_integration(document: &ExtractedDocument, reproducibility: f64, has_equations: bool, has_references: bool) -> f64 {
+        let code_avail = if document.github_url.is_some() { 0.3 } else { 0.0 };
         let eq_score = if has_equations { 0.2 } else { 0.05 };
         let ref_score = if has_references { 0.1 } else { 0.0 };
         (reproducibility * 0.4 + code_avail + eq_score + ref_score).min(1.0)
@@ -756,17 +610,14 @@ impl RiskAnalyzer {
             risks.push(Risk {
                 level: "MEDIUM".into(),
                 description: "Aucun code source n'est associé à la publication.".into(),
-                mitigation: Some(
-                    "Contacter les auteurs ou tenter une reproduction indépendante.".into(),
-                ),
+                mitigation: Some("Contacter les auteurs ou tenter une reproduction indépendante.".into()),
             });
         }
 
         if text.is_empty() {
             risks.push(Risk {
                 level: "HIGH".into(),
-                description: "Texte complet non disponible, l'analyse repose sur l'abstract."
-                    .into(),
+                description: "Texte complet non disponible, l'analyse repose sur l'abstract.".into(),
                 mitigation: Some("Récupérer le PDF complet pour une analyse approfondie.".into()),
             });
         }
@@ -783,23 +634,14 @@ pub struct HeuristicAnalyzer;
 
 impl HeuristicAnalyzer {
     /// Exécute toutes les analyses heuristiques et retourne les résultats structurés.
-    pub fn analyze(
-        document: &ExtractedDocument,
-        executive_summary: &str,
-        contributions: &[String],
-    ) -> HeuristicAnalysisResult {
+    pub fn analyze(document: &ExtractedDocument, executive_summary: &str, contributions: &[String]) -> HeuristicAnalysisResult {
         let text = document.full_text.as_deref().unwrap_or("");
         let math = MathematicalAnalyzer::analyze(text);
         let algo = AlgorithmAnalyzer::analyze(text);
         let sys = SystemAnalyzer::analyze(text);
         let arch = HeuristicArchitecturalMapper::map(document, executive_summary, contributions);
         let reproducibility = ScoringEngine::compute_reproducibility(document);
-        let integration = ScoringEngine::compute_integration(
-            document,
-            reproducibility,
-            !math.equations.is_empty(),
-            !document.references.is_empty(),
-        );
+        let integration = ScoringEngine::compute_integration(document, reproducibility, !math.equations.is_empty(), !document.references.is_empty());
         let risks = RiskAnalyzer::analyze(document, text);
 
         HeuristicAnalysisResult {

@@ -1,10 +1,7 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
-use figment::{
-    providers::{Env, Format, Serialized, Toml},
-    Figment,
-};
+use anyhow::{Result, Context};
+use figment::{Figment, providers::{Format, Serialized, Toml, Env}};
 use serde::{Deserialize, Serialize};
 
 /// Configuration centralisée pour PAPERS V2.
@@ -131,15 +128,19 @@ impl PapersConfig {
         // Overlay from environment variables: PAPERS_EVOLUTION__MAX_ROUNDS=100
         figment = figment.merge(Env::prefixed("PAPERS_").split("__"));
 
-        let config: PapersConfig = figment.extract().context("Failed to load configuration")?;
+        let config: PapersConfig = figment
+            .extract()
+            .context("Failed to load configuration")?;
 
         Ok(config)
     }
 
     /// Sauvegarde la configuration en fichier TOML.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let toml = toml::to_string_pretty(self).context("Failed to serialize config")?;
-        std::fs::write(path, toml).context("Failed to write config file")?;
+        let toml = toml::to_string_pretty(self)
+            .context("Failed to serialize config")?;
+        std::fs::write(path, toml)
+            .context("Failed to write config file")?;
         Ok(())
     }
 

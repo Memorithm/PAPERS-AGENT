@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::{Result, Context};
 use ort::session::Session;
 use ort::value::TensorRef;
 
@@ -52,19 +52,16 @@ impl Tokenizer {
     }
 
     fn load_vocab(path: &Path) -> Result<(HashMap<String, i64>, i64, i64)> {
-        let content = std::fs::read_to_string(path).context("Failed to read vocab file")?;
+        let content = std::fs::read_to_string(path)
+            .context("Failed to read vocab file")?;
         let mut vocab = HashMap::new();
         let mut cls = 101;
         let mut pad = 0;
 
         for (i, line) in content.lines().enumerate() {
             let token = line.trim().to_string();
-            if token == "[CLS]" {
-                cls = i as i64;
-            }
-            if token == "[PAD]" {
-                pad = i as i64;
-            }
+            if token == "[CLS]" { cls = i as i64; }
+            if token == "[PAD]" { pad = i as i64; }
             vocab.insert(token, i as i64);
         }
 
@@ -78,23 +75,16 @@ impl Tokenizer {
         let mut attention_mask = vec![1i64];
 
         for word in words {
-            if input_ids.len() >= self.max_length - 1 {
-                break;
-            }
+            if input_ids.len() >= self.max_length - 1 { break; }
             if let Some(id) = self.vocab.get(word) {
                 input_ids.push(*id);
                 attention_mask.push(1);
             } else {
                 for ch in word.chars() {
-                    if input_ids.len() >= self.max_length - 1 {
-                        break;
-                    }
+                    if input_ids.len() >= self.max_length - 1 { break; }
                     let s = ch.to_string();
-                    let id = self
-                        .vocab
-                        .get(s.as_str())
-                        .copied()
-                        .unwrap_or(self.vocab.get("[UNK]").copied().unwrap_or(103));
+                    let id = self.vocab.get(s.as_str())
+                        .copied().unwrap_or(self.vocab.get("[UNK]").copied().unwrap_or(103));
                     input_ids.push(id);
                     attention_mask.push(1);
                 }
@@ -136,42 +126,29 @@ impl OnnxEmbeddingEngine {
                 }
             }
         } else {
-            log::warn!(
-                "ONNX model not found at {:?}, using deterministic fallback",
-                model_path
-            );
+            log::warn!("ONNX model not found at {:?}, using deterministic fallback", model_path);
             None
         };
 
         let vocab_path = {
             let parent = model_path.parent().unwrap_or(Path::new("."));
             let v = parent.join("vocab.txt");
-            if v.exists() {
-                Some(v)
-            } else {
-                None
-            }
+            if v.exists() { Some(v) } else { None }
         };
         let tokenizer = Tokenizer::new(vocab_path.as_deref())?;
         let dim = 384;
 
-        Ok(Self {
-            session,
-            tokenizer,
-            dim,
-            model_path,
-        })
+        Ok(Self { session, tokenizer, dim, model_path })
     }
 
     /// Try to load or reload the ONNX model if available.
     pub fn try_load_model(&mut self) -> Result<()> {
-        if self.session.is_some() {
-            return Ok(());
-        }
+        if self.session.is_some() { return Ok(()); }
         if !self.model_path.exists() {
             anyhow::bail!("ONNX model not found at {:?}", self.model_path);
         }
-        let session = Session::builder()?.commit_from_file(&self.model_path)?;
+        let session = Session::builder()?
+            .commit_from_file(&self.model_path)?;
         self.session = Some(Mutex::new(session));
         Ok(())
     }
@@ -189,9 +166,7 @@ impl OnnxEmbeddingEngine {
 
     /// Try ONNX inference.
     fn try_onnx_embed(&self, text: &str) -> Result<Vec<f32>> {
-        let session = self
-            .session
-            .as_ref()
+        let session = self.session.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No ONNX session loaded"))?;
         let (input_ids, attention_mask, token_type_ids) = self.tokenizer.tokenize(text);
         let seq_len = self.tokenizer.max_length;
@@ -210,9 +185,7 @@ impl OnnxEmbeddingEngine {
         let mut sess = session.lock().unwrap();
         let outputs = sess.run(ort::inputs![ids_ref, mask_ref, type_ids_ref])?;
 
-        let output_ref = outputs
-            .iter()
-            .next()
+        let output_ref = outputs.iter().next()
             .ok_or_else(|| anyhow::anyhow!("No outputs from model"))?;
         let (shape, data) = output_ref.1.try_extract_tensor::<f32>()?;
         let num_dims = shape.len();
@@ -239,16 +212,12 @@ impl OnnxEmbeddingEngine {
         }
 
         if mask_sum > 0.0 {
-            for v in pooled.iter_mut() {
-                *v /= mask_sum;
-            }
+            for v in pooled.iter_mut() { *v /= mask_sum; }
         }
 
         let norm: f32 = pooled.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm > 0.0 {
-            for v in pooled.iter_mut() {
-                *v /= norm;
-            }
+            for v in pooled.iter_mut() { *v /= norm; }
         }
 
         Ok(pooled)
@@ -263,9 +232,7 @@ impl OnnxEmbeddingEngine {
             let m = attention_mask.get(i).copied().unwrap_or(0) as f32;
             if m > 0.0 {
                 mask_sum += m;
-                let seed = (id as u64)
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
+                let seed = (id as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 for (j, val) in embedding.iter_mut().enumerate().take(self.dim) {
                     let hash = seed.wrapping_add(j as u64 * 31);
                     let v = ((hash >> 33) as f32) / (i64::MAX as f32);
@@ -274,15 +241,11 @@ impl OnnxEmbeddingEngine {
             }
         }
         if mask_sum > 0.0 {
-            for v in embedding.iter_mut() {
-                *v /= mask_sum;
-            }
+            for v in embedding.iter_mut() { *v /= mask_sum; }
         }
         let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm > 0.0 {
-            for v in embedding.iter_mut() {
-                *v /= norm;
-            }
+            for v in embedding.iter_mut() { *v /= norm; }
         }
         embedding
     }
@@ -293,24 +256,16 @@ impl OnnxEmbeddingEngine {
     }
 
     /// Dimension of output vectors.
-    pub fn dim(&self) -> usize {
-        self.dim
-    }
+    pub fn dim(&self) -> usize { self.dim }
 
     /// Cosine similarity between two vectors.
     pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         let len = a.len().min(b.len());
-        if len == 0 {
-            return 0.0;
-        }
+        if len == 0 { return 0.0; }
         let dot: f32 = a[..len].iter().zip(&b[..len]).map(|(x, y)| x * y).sum();
         let na: f32 = a[..len].iter().map(|x| x * x).sum::<f32>().sqrt();
         let nb: f32 = b[..len].iter().map(|x| x * x).sum::<f32>().sqrt();
-        if na == 0.0 || nb == 0.0 {
-            0.0
-        } else {
-            dot / (na * nb)
-        }
+        if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb) }
     }
 }
 
@@ -359,11 +314,7 @@ mod tests {
         };
         let v = engine.embed("test text");
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (norm - 1.0).abs() < 0.01,
-            "norm should be ~1.0, got {}",
-            norm
-        );
+        assert!((norm - 1.0).abs() < 0.01, "norm should be ~1.0, got {}", norm);
     }
 
     use std::path::PathBuf;
