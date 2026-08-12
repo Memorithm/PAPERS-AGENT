@@ -102,16 +102,17 @@ impl SymbolicEngine {
             }
             m.swap(col, pivot);
             let divisor = m[col][col];
-            for j in col..=n {
-                m[col][j] /= divisor;
+            for value in &mut m[col][col..=n] {
+                *value /= divisor;
             }
-            for i in 0..n {
+            let pivot_row = m[col].clone();
+            for (i, row) in m.iter_mut().enumerate() {
                 if i == col {
                     continue;
                 }
-                let factor = m[i][col];
-                for j in col..=n {
-                    m[i][j] -= factor * m[col][j];
+                let factor = row[col];
+                for (value, &pivot_value) in row[col..=n].iter_mut().zip(&pivot_row[col..=n]) {
+                    *value -= factor * pivot_value;
                 }
             }
         }

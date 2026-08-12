@@ -269,10 +269,12 @@ mod tests {
 
     #[test]
     fn failed_evaluation_never_becomes_best_candidate() {
-        let mut cfg = EvolutionConfig::default();
-        cfg.max_rounds = 1;
-        cfg.n_candidates_per_round = 1;
-        cfg.patience = usize::MAX;
+        let cfg = EvolutionConfig {
+            max_rounds: 1,
+            n_candidates_per_round: 1,
+            patience: usize::MAX,
+            ..EvolutionConfig::default()
+        };
         let mut loop_ = EvolutionLoop::new(cfg);
         let result = loop_.run(|_| (false, 0.99));
         assert!(!result.success);
