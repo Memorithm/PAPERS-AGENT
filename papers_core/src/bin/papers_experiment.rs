@@ -8,6 +8,7 @@ use papers_core::scientific_contract::{
     sha256_hex, ExperimentProposal, ResourceLimits, ScientificBundle,
     EXPERIMENT_PROPOSAL_SCHEMA,
 };
+use serde::Serialize;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -89,6 +90,28 @@ struct Args {
     stdout: bool,
 }
 
+#[derive(Serialize)]
+struct ExperimentIdentity<'a> {
+    paper_id: &'a str,
+    claim_ids: &'a [String],
+    hypothesis: &'a str,
+    target: &'a str,
+    intervention: &'a str,
+    baseline: &'a str,
+    metrics: &'a [String],
+    acceptance_criteria: &'a [String],
+    rejection_criteria: &'a [String],
+    safety_constraints: &'a [String],
+    expected_direction: &'a Option<String>,
+    expected_effect: &'a Option<String>,
+    workload: &'a Option<String>,
+    seed: u64,
+    repetitions: u32,
+    timeout_seconds: Option<u64>,
+    max_memory_bytes: Option<u64>,
+    max_output_bytes: Option<u64>,
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     validate_cli(&args)?;
@@ -106,27 +129,28 @@ fn main() -> Result<()> {
         }
     }
 
-    let id_payload = serde_json::to_vec(&(
-        &bundle.paper.id,
-        &args.claim_ids,
-        &args.hypothesis,
-        &args.target,
-        &args.intervention,
-        &args.baseline,
-        &args.metrics,
-        &args.acceptance_criteria,
-        &args.rejection_criteria,
-        &args.safety_constraints,
-        &args.expected_direction,
-        &args.expected_effect,
-        &args.workload,
-        args.seed,
-        args.repetitions,
-        args.timeout_seconds,
-        args.max_memory_bytes,
-        args.max_output_bytes,
-    ))
-    .context("cannot serialize experiment identity payload")?;
+    let identity = ExperimentIdentity {
+        paper_id: &bundle.paper.id,
+        claim_ids: &args.claim_ids,
+        hypothesis: &args.hypothesis,
+        target: &args.target,
+        intervention: &args.intervention,
+        baseline: &args.baseline,
+        metrics: &args.metrics,
+        acceptance_criteria: &args.acceptance_criteria,
+        rejection_criteria: &args.rejection_criteria,
+        safety_constraints: &args.safety_constraints,
+        expected_direction: &args.expected_direction,
+        expected_effect: &args.expected_effect,
+        workload: &args.workload,
+        seed: args.seed,
+        repetitions: args.repetitions,
+        timeout_seconds: args.timeout_seconds,
+        max_memory_bytes: args.max_memory_bytes,
+        max_output_bytes: args.max_output_bytes,
+    };
+    let id_payload =
+        serde_json::to_vec(&identity).context("cannot serialize experiment identity payload")?;
     let digest = sha256_hex(&id_payload);
 
     let proposal = ExperimentProposal {
@@ -155,8 +179,8 @@ fn main() -> Result<()> {
     };
     proposal.validate().map_err(anyhow::Error::msg)?;
 
-    let json = serde_json::to_string_pretty(&proposal)
-        .context("cannot serialize experiment proposal")?;
+    let json =
+        serde_json::to_string_pretty(&proposal).context("cannot serialize experiment proposal")?;
     if args.stdout {
         println!("{json}");
         return Ok(());
