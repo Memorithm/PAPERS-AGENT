@@ -158,8 +158,11 @@ impl Database {
             .map(|(id, node)| (*id, node.score))
             .collect();
         entries.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let keep_ids: std::collections::HashSet<usize> =
-            entries.into_iter().take(keep_top).map(|(id, _)| id).collect();
+        let keep_ids: std::collections::HashSet<usize> = entries
+            .into_iter()
+            .take(keep_top)
+            .map(|(id, _)| id)
+            .collect();
         self.nodes.retain(|id, _| keep_ids.contains(id));
     }
 
@@ -189,5 +192,133 @@ impl Clone for Database {
             sampler: create_sampler(&self.sampler_name),
             vector_store: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(motivation: &str, score: f64) -> Node {
+        Node::new(
+            motivation.to_string(),
+            "fn candidate() { 1 + 1 }".to_string(),
+            score,
+        )
+    }
+
+    #[test]
+    fn add_assigns_sequential_ids() {
+        let mut db = Database::new("greedy");
+        assert!(db.is_empty());
+        let a = db.add(node("a", 0.1));
+        let b = db.add(node("b", 0.2));
+        assert_eq!((a, b), (0, 1));
+        assert_eq!(db.get(a).unwrap().motivation, "a");
+        assert_eq!(db.len(), 2);
+    }
+
+    #[test]
+    fn best_and_top_k_ordering() {
+        let mut db = Database::new("greedy");
+        db.add(node("faible", 0.1));
+        db.add(node("fort", 0.95));
+        db.add(node("moyen", 0.5));
+
+        assert_eq!(db.best().unwrap().motivation, "fort");
+        let top = db.top_k(2);
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].motivation, "fort");
+        assert_eq!(top[1].motivation, "moyen");
+    }
+
+    #[test]
+    fn stats_are_consistent() {
+        let mut db = Database::new("greedy");
+        for s in [0.0, 0.5, 1.0] {
+            db.add(node("n", s));
+        }
+        let st = db.stats();
+        assert_eq!(st.total_nodes, 3);
+        assert!((st.mean_score - 0.5).abs() < 1e-9);
+        assert_eq!(st.max_score, 1.0);
+        assert_eq!(st.min_score, 0.0);
+        assert!(st.std_score > 0.0);
+
+        // Base vide : stats par défaut sans NaN.
+        let empty = Database::new("greedy").stats();
+        assert_eq!(empty.total_nodes, 0);
+        assert!(empty.mean_score.is_finite());
+    }
+
+    #[test]
+    fn sample_increments_visit_count_in_store() {
+        let mut db = Database::new("greedy");
+        let id = db.add(node("visité", 0.9));
+        assert_eq!(db.get(id).unwrap().visit_count, 0);
+
+        let sampled = db.sample(1);
+        assert_eq!(sampled.len(), 1);
+        assert_eq!(db.get(id).unwrap().visit_count, 1, "visite enregistrée");
+
+        db.sample(1);
+        assert_eq!(db.get(id).unwrap().visit_count, 2);
+    }
+
+    #[test]
+    fn prune_bottom_keeps_only_top_nodes() {
+        let mut db = Database::new("greedy");
+        for i in 0..10 {
+            db.add(node(&format!("n{i}"), i as f64 / 10.0));
+        }
+        db.prune_bottom(3);
+        assert_eq!(db.len(), 3);
+        let top: Vec<&str> = db.top_k(3).iter().map(|n| n.motivation.as_str()).collect();
+        assert!(top.contains(&"n9") && top.contains(&"n8") && top.contains(&"n7"));
+
+        // Prune sous le seuil : no-op.
+        db.prune_bottom(100);
+        assert_eq!(db.len(), 3);
+    }
+
+    #[test]
+    fn to_json_roundtrip_preserves_nodes() {
+        use crate::models::Node as N;
+        let mut db = Database::new("ucb1");
+        db.add(node("alpha", 0.42));
+        db.add(node("beta", 0.77));
+
+        let json = db.to_json();
+        let parsed: Vec<N> = serde_json::from_str(&json).expect("JSON valide");
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed
+            .iter()
+            .any(|p| p.motivation == "alpha" && p.score == 0.42));
+    }
+
+    #[test]
+    fn semantic_search_without_vector_store_returns_empty() {
+        let mut db = Database::new("greedy");
+        db.add(node("deep learning", 0.5));
+        assert!(!db.has_vector_store());
+        assert_eq!(db.embedding_dim(), 0);
+        assert!(db.search_similar("learning", 3).is_empty());
+        assert!(db.search_similar_threshold("learning", 3, 0.1).is_empty());
+    }
+
+    #[test]
+    fn clone_preserves_nodes_but_drops_vector_store() {
+        let corpus = ["neural networks", "graph algorithms"];
+        let mut db = Database::new_with_vector_store("greedy", &corpus);
+        db.add(node("réseau de neurones convolutif", 0.6));
+        assert!(db.has_vector_store());
+
+        let cloned = db.clone();
+        assert!(
+            !cloned.has_vector_store(),
+            "clone perd le VectorStore (documenté)"
+        );
+        assert_eq!(cloned.len(), 1);
+        assert_eq!(cloned.next_id, db.next_id);
     }
 }

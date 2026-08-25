@@ -9,6 +9,7 @@ use crate::evolution::EvolutionLoop;
 use crate::extraction::{ExtractedDocument, ExtractionPipeline};
 use crate::llm::{LlmClient, LlmConfig};
 use crate::llm_analyzer::LLmAnalyzer;
+use crate::metrics_server::{record_analysis, record_evolution, record_extraction};
 use crate::models::{CognitionItem, EvolutionConfig, EvolutionResult};
 use crate::paper_parser::PaperParser;
 
@@ -33,6 +34,9 @@ pub struct AnalysisReport {
     pub deep_analysis: serde_json::Value,
     pub experiment_plan: serde_json::Value,
     pub pseudo_code: serde_json::Value,
+    /// Échecs LLM explicites (mode strict) : section concernée + cause.
+    #[serde(default)]
+    pub llm_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,12 +82,32 @@ impl Recommendation {
     }
 
     pub fn from_score(score: f64) -> Self {
-        if score <= 0.30 { Self::Reject }
-        else if score <= 0.50 { Self::Archive }
-        else if score <= 0.70 { Self::Prototype }
-        else { Self::Integrate }
+        if score <= 0.30 {
+            Self::Reject
+        } else if score <= 0.50 {
+            Self::Archive
+        } else if score <= 0.70 {
+            Self::Prototype
+        } else {
+            Self::Integrate
+        }
     }
 }
+
+/// Corpus de démarrage utilisé pour l'indexation initiale du DocStore
+/// (recherche sémantique avant toute extraction de papier).
+pub const SEED_CORPUS: &[&str] = &[
+    "reinforcement learning neural networks",
+    "graph neural networks knowledge graphs",
+    "symbolic regression genetic programming",
+    "natural language processing transformers",
+    "computer vision convolutional networks",
+    "autonomous agents multi-agent systems",
+    "recursive self-improvement meta-learning",
+    "mechanistic interpretability neural networks",
+    "quantum machine learning tensor networks",
+    "AI safety alignment robustness",
+];
 
 /// Moteur principal PAPERS V2 : extraction → analyse → évolution.
 pub struct PapersEngine {
@@ -95,19 +119,6 @@ pub struct PapersEngine {
 impl PapersEngine {
     /// Crée un moteur avec ou sans LLM.
     pub fn new(use_llm: bool, llm_config: Option<LlmConfig>) -> Self {
-        let corpus = &[
-            "reinforcement learning neural networks",
-            "graph neural networks knowledge graphs",
-            "symbolic regression genetic programming",
-            "natural language processing transformers",
-            "computer vision convolutional networks",
-            "autonomous agents multi-agent systems",
-            "recursive self-improvement meta-learning",
-            "mechanistic interpretability neural networks",
-            "quantum machine learning tensor networks",
-            "AI safety alignment robustness",
-        ];
-
         let llm = if use_llm {
             let config = llm_config.unwrap_or_default();
             let client = LlmClient::new(config.clone());
@@ -125,13 +136,14 @@ impl PapersEngine {
         Self {
             llm,
             pipeline: ExtractionPipeline::new(),
-            doc_store: DocStore::new(corpus),
+            doc_store: DocStore::with_corpus_documents(SEED_CORPUS),
         }
     }
 
     /// Extrait un document depuis une source (PDF, arXiv, URL, texte).
     pub fn extract(&mut self, source: &str) -> Result<ExtractedDocument, String> {
         info!("Extraction depuis: {}", source);
+        record_extraction();
         let doc = self.pipeline.extract(source)?;
 
         // Indexer dans le DocStore
@@ -154,28 +166,32 @@ impl PapersEngine {
     /// résumé, architecture, expérience, pseudo-code, analyse multi-passes).
     pub fn analyze(&mut self, document: &ExtractedDocument) -> AnalysisReport {
         info!("Analyse de: {}", document.title);
+        record_analysis();
 
         let text = document.full_text.as_deref().unwrap_or("");
         let abstract_text = document.abstract_text.as_deref().unwrap_or("");
 
         // Extraction heuristique de base
-        let parsed = document.parsed.as_ref().cloned().unwrap_or_else(|| {
-            PaperParser::parse(text, Some(&document.title))
-        });
+        let parsed = document
+            .parsed
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| PaperParser::parse(text, Some(&document.title)));
 
         // Analyse LLM si disponible
-        let (summary, contributions, arch, deep, exp, pseudo) = if let Some(ref llm) = self.llm {
-            let analyzer = LLmAnalyzer::new(llm);
+        let (summary, contributions, arch, deep, exp, pseudo, llm_warnings) = if let Some(ref llm) =
+            self.llm
+        {
+            // Mode strict : les échecs LLM sont collectés et remontés dans le
+            // rapport au lieu de produire des sections vides silencieuses.
+            let analyzer = LLmAnalyzer::new(llm).strict();
 
             let contributions = analyzer.analyze_contributions(&AnalysisReport {
                 document: document.clone(),
                 ..Self::empty_report(document, &parsed)
             });
-            let summary = analyzer.analyze_executive_summary(
-                &document.title,
-                abstract_text,
-                &contributions,
-            );
+            let summary =
+                analyzer.analyze_executive_summary(&document.title, abstract_text, &contributions);
 
             // Analyses LLM enrichies
             let arch = analyzer.analyze_architecture(&AnalysisReport {
@@ -187,11 +203,18 @@ impl PapersEngine {
             let deep = analyzer.analyze_deep(&document.title, abstract_text, text);
             let exp = analyzer.analyze_experiment(&document.title, abstract_text, &contributions);
             let math = analyzer.analyze_mathematical(text);
-            let pseudo = analyzer.analyze_pseudocode(
-                &document.title, abstract_text, &contributions, &math,
-            );
+            let pseudo =
+                analyzer.analyze_pseudocode(&document.title, abstract_text, &contributions, &math);
 
-            (summary, contributions, arch, deep, exp, pseudo)
+            (
+                summary,
+                contributions,
+                arch,
+                deep,
+                exp,
+                pseudo,
+                analyzer.take_failures(),
+            )
         } else {
             let summary = format!(
                 "Analyse heuristique du papier '{}' (source: {}). \
@@ -212,7 +235,7 @@ impl PapersEngine {
             let exp = serde_json::Value::Null;
             let pseudo = serde_json::Value::Null;
 
-            (summary, contributions, arch, deep, exp, pseudo)
+            (summary, contributions, arch, deep, exp, pseudo, Vec::new())
         };
 
         // Recalculer les scores avec le ScoringEngine
@@ -223,7 +246,11 @@ impl PapersEngine {
 
         AnalysisReport {
             equations: parsed.equations.clone(),
-            variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
+            variables: parsed
+                .variables
+                .iter()
+                .map(|v| (v.name.clone(), v.meaning.clone()))
+                .collect(),
             algorithms: heuristic.extract_algo_descs(),
             system_requirements: heuristic.system.clone(),
             risks: heuristic.risks.clone(),
@@ -257,21 +284,34 @@ impl PapersEngine {
             deep_analysis: deep,
             experiment_plan: exp,
             pseudo_code: pseudo,
+            llm_warnings,
         }
     }
 
     /// Rapport vide avec les champs obligatoires remplis (utile pour les
     /// appels intermédiaires à l'analyseur LLM).
-    fn empty_report(document: &ExtractedDocument, parsed: &crate::paper_parser::ParsedPaper) -> AnalysisReport {
+    fn empty_report(
+        document: &ExtractedDocument,
+        parsed: &crate::paper_parser::ParsedPaper,
+    ) -> AnalysisReport {
         AnalysisReport {
             document: document.clone(),
             contributions: Vec::new(),
             executive_summary: String::new(),
             equations: parsed.equations.clone(),
-            variables: parsed.variables.iter().map(|v| (v.name.clone(), v.meaning.clone())).collect(),
+            variables: parsed
+                .variables
+                .iter()
+                .map(|v| (v.name.clone(), v.meaning.clone()))
+                .collect(),
             algorithms: Vec::new(),
             system_requirements: SystemRequirements {
-                vram: None, ram: None, disk: None, latency: None, throughput: None, scalability: None,
+                vram: None,
+                ram: None,
+                disk: None,
+                latency: None,
+                throughput: None,
+                scalability: None,
             },
             risks: Vec::new(),
             recommendation: Recommendation::Reject,
@@ -284,6 +324,7 @@ impl PapersEngine {
             deep_analysis: serde_json::Value::Null,
             experiment_plan: serde_json::Value::Null,
             pseudo_code: serde_json::Value::Null,
+            llm_warnings: Vec::new(),
         }
     }
 
@@ -302,6 +343,7 @@ impl PapersEngine {
         let llm = self.llm.as_ref().ok_or("LLM requis pour l'évolution")?;
 
         info!("Démarrage évolution: {}", config.task_description);
+        record_evolution();
 
         let mut evo = EvolutionLoop::new(config.clone());
 
@@ -396,8 +438,8 @@ mod tests {
     fn test_engine_creation() {
         let engine = PapersEngine::new(false, None);
         assert!(engine.llm.is_none());
-        // DocStore est créé mais vide (pas de documents ajoutés)
-        assert!(engine.doc_store.is_empty());
+        // Le DocStore est pré-rempli avec le corpus seed (10 documents indexés).
+        assert_eq!(engine.doc_store.len(), SEED_CORPUS.len());
     }
 
     #[test]

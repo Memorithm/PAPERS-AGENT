@@ -1,20 +1,32 @@
-use std::time::Instant;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+/// Délai par défaut accordé à `rustc` pour compiler un programme de sonde.
+const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 30;
 
 /// Benchmark probe for measuring code performance and quality.
+///
+/// La compilation est réellement vérifiée via `rustc --emit=metadata` dans un
+/// répertoire temporaire. Les tests de performance et mémoire restent des
+/// estimations statiques (l'exécution arbitraire relève du sandbox WASM).
 pub struct RustProbe {
     program: String,
     /// CPU time limit for benchmarks in seconds
     cpu_limit: f64,
     /// Memory limit for benchmarks in MB
     memory_limit: f64,
+    /// Délai maximal d'une invocation rustc
+    compile_timeout_secs: u64,
 }
 
 impl RustProbe {
     pub fn new(program: &str) -> Self {
         Self {
             program: program.to_string(),
-            cpu_limit: 10.0, // Default 10 second CPU limit
+            cpu_limit: 10.0,     // Default 10 second CPU limit
             memory_limit: 512.0, // Default 512 MB memory limit
+            compile_timeout_secs: DEFAULT_COMPILE_TIMEOUT_SECS,
         }
     }
 
@@ -45,7 +57,10 @@ impl RustProbe {
         let total_time = start_time.elapsed().as_secs_f64();
 
         if total_time > self.cpu_limit {
-            return Err(format!("Benchmark exceeded CPU limit of {}s", self.cpu_limit));
+            return Err(format!(
+                "Benchmark exceeded CPU limit of {}s",
+                self.cpu_limit
+            ));
         }
 
         let mut passed = 0;
@@ -85,24 +100,120 @@ impl RustProbe {
     }
 
     /// Test that the code compiles without errors.
+    ///
+    /// Pré-filtre structurel rapide, puis compilation réelle via `rustc
+    /// --edition=2021 --emit=metadata` dans un répertoire temporaire. Si le
+    /// binaire `rustc` est indisponible, repli documenté sur la vérification
+    /// structurelle seule (jamais présentée comme une vraie compilation).
     fn test_compilation(&self) -> Result<bool, String> {
-        // This is a simplified compilation test
-        // In a real implementation, this would actually compile the code
         if self.program.is_empty() {
             return Err("Program is empty".to_string());
         }
 
-        // Check for basic Rust syntax
         if !self.validate_basic_syntax() {
             return Err("Basic syntax validation failed".to_string());
         }
 
-        // Check for required constructs
-        if !self.has_required_constructs() {
-            return Err("Missing required constructs".to_string());
+        match self.compile_with_rustc() {
+            CompilationOutcome::Success => Ok(true),
+            CompilationOutcome::RustcUnavailable => {
+                log::warn!(
+                    "rustc introuvable : la sonde se limite à la vérification structurelle \
+                     (aucune compilation réelle effectuée)"
+                );
+                if !self.has_required_constructs() {
+                    return Err("Missing required constructs".to_string());
+                }
+                Ok(true)
+            }
+            CompilationOutcome::Failure(msg) => Err(msg),
+        }
+    }
+
+    /// Compile réellement le programme avec rustc.
+    ///
+    /// Les warnings sont acceptés (`-A warnings`) : seul un échec de
+    /// compilation est rejeté. Le stderr de rustc est capturé dans un fichier
+    /// temporaire pour éviter tout deadlock de pipe et permettre l'affichage
+    /// tronqué des erreurs.
+    fn compile_with_rustc(&self) -> CompilationOutcome {
+        let dir = match tempfile::tempdir() {
+            Ok(d) => d,
+            Err(e) => return CompilationOutcome::Failure(format!("Création tempdir: {}", e)),
+        };
+        let src_path = dir.path().join("probe_program.rs");
+        if let Err(e) = std::fs::write(&src_path, &self.program) {
+            return CompilationOutcome::Failure(format!("Écriture source: {}", e));
+        }
+        let err_file = match tempfile::NamedTempFile::new() {
+            Ok(f) => f,
+            Err(e) => return CompilationOutcome::Failure(format!("Fichier stderr: {}", e)),
+        };
+        let err_handle = match err_file.reopen() {
+            Ok(h) => h,
+            Err(e) => return CompilationOutcome::Failure(format!("Réouverture stderr: {}", e)),
+        };
+
+        let child = Command::new("rustc")
+            .arg("--edition=2021")
+            .arg("--crate-type=lib")
+            .arg("--emit=metadata")
+            .arg("-A")
+            .arg("warnings")
+            .arg("--out-dir")
+            .arg(dir.path())
+            .arg(&src_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(err_handle))
+            .spawn();
+
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return CompilationOutcome::RustcUnavailable;
+            }
+            Err(e) => return CompilationOutcome::Failure(format!("Lancement rustc: {}", e)),
+        };
+
+        // Attente avec délai : kill au-delà du timeout.
+        let deadline = Instant::now() + Duration::from_secs(self.compile_timeout_secs);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(st)) => break Some(st),
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return CompilationOutcome::Failure(format!(
+                        "rustc a dépassé le délai de {}s",
+                        self.compile_timeout_secs
+                    ));
+                }
+                Err(e) => return CompilationOutcome::Failure(format!("Attente rustc: {}", e)),
+            }
+        };
+
+        let Some(status) = status else {
+            return CompilationOutcome::Failure("rustc: statut inconnu".into());
+        };
+
+        if status.success() {
+            return CompilationOutcome::Success;
         }
 
-        Ok(true)
+        // Récupère les erreurs rustc (tronquées) pour diagnostic.
+        let mut stderr = String::new();
+        if let Ok(mut f) = err_file.reopen() {
+            let _ = f.read_to_string(&mut stderr);
+        }
+        let preview: String = stderr.chars().take(500).collect();
+        CompilationOutcome::Failure(if preview.trim().is_empty() {
+            format!("rustc a échoué ({})", status)
+        } else {
+            format!("Compilation échouée: {}", preview.trim_end())
+        })
     }
 
     /// Validate basic Rust syntax.
@@ -192,7 +303,10 @@ impl RustProbe {
         let estimated_runtime = self.estimate_runtime();
 
         if estimated_runtime > self.cpu_limit {
-            return Err(format!("Estimated runtime {}s exceeds limit", estimated_runtime));
+            return Err(format!(
+                "Estimated runtime {}s exceeds limit",
+                estimated_runtime
+            ));
         }
 
         if complexity > 10000.0 {
@@ -230,7 +344,8 @@ impl RustProbe {
             }
 
             // Count function calls
-            let call_count = trimmed.matches('.').count() + trimmed.matches('(').count() - trimmed.matches(')').count();
+            let call_count = trimmed.matches('.').count() + trimmed.matches('(').count()
+                - trimmed.matches(')').count();
             complexity += call_count as f64 * 2.0;
 
             // Count lines of code
@@ -260,7 +375,10 @@ impl RustProbe {
         let estimated_memory = self.estimate_memory_usage();
 
         if estimated_memory > self.memory_limit {
-            return Err(format!("Estimated memory usage {}MB exceeds limit", estimated_memory));
+            return Err(format!(
+                "Estimated memory usage {}MB exceeds limit",
+                estimated_memory
+            ));
         }
 
         Ok(true)
@@ -334,7 +452,10 @@ impl RustProbe {
         }
 
         if cyclomatic_complexity > 50 {
-            return Err(format!("Cyclomatic complexity too high: {}", cyclomatic_complexity));
+            return Err(format!(
+                "Cyclomatic complexity too high: {}",
+                cyclomatic_complexity
+            ));
         }
 
         Ok(true)
@@ -381,6 +502,14 @@ impl RustProbe {
 
         complexity
     }
+}
+
+/// Issue d'une tentative de compilation réelle.
+enum CompilationOutcome {
+    Success,
+    /// rustc absent de l'environnement (repli structurel documenté).
+    RustcUnavailable,
+    Failure(String),
 }
 
 /// Result of a comprehensive benchmark test.
@@ -500,5 +629,66 @@ fn main() {
         assert!(result.is_ok());
         let result = result.unwrap();
         assert!(!result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_real_compilation_accepts_valid_rust() {
+        let program = r#"
+pub fn add(a: i64, b: i64) -> i64 { a + b }
+
+pub fn build() -> Vec<String> {
+    (0..3).map(|i| format!("item-{i}")).collect()
+}
+"#;
+        let probe = RustProbe::new(program);
+        let outcome = probe.compile_with_rustc();
+        match outcome {
+            CompilationOutcome::Success => {}
+            CompilationOutcome::RustcUnavailable => {
+                // Environnement sans rustc : la sonde doit replier proprement.
+                assert!(probe.test_compilation().is_ok());
+            }
+            CompilationOutcome::Failure(e) => panic!("programme valide rejeté: {e}"),
+        }
+    }
+
+    #[test]
+    fn test_real_compilation_rejects_type_error() {
+        let program = r#"
+pub fn broken() -> i32 {
+    let x: i32 = "pas un nombre";
+    x
+}
+"#;
+        let probe = RustProbe::new(program);
+        match probe.compile_with_rustc() {
+            CompilationOutcome::Failure(msg) => {
+                assert!(msg.contains("Compilation échouée"), "msg: {msg}");
+            }
+            CompilationOutcome::RustcUnavailable => {}
+            CompilationOutcome::Success => panic!("erreur de type acceptée par rustc ?!"),
+        }
+        // run_tests doit rapporter l'échec de compilation.
+        let result = probe.run_tests().unwrap();
+        assert!(
+            result.errors.iter().any(|e| e.contains("compilation")),
+            "erreurs: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_real_compilation_rejects_unresolved_name() {
+        let program = r#"
+pub fn calls_missing() -> u64 {
+    fonction_qui_n_existe_pas(42)
+}
+"#;
+        let probe = RustProbe::new(program);
+        match probe.compile_with_rustc() {
+            CompilationOutcome::Failure(_) => {}
+            CompilationOutcome::RustcUnavailable => {}
+            CompilationOutcome::Success => panic!("nom non résolu accepté ?!"),
+        }
     }
 }

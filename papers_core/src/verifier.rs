@@ -53,9 +53,20 @@ impl Verifier {
             suggestions.push("Consider adding necessary use statements.".into());
         }
 
-        let complexity = program.lines().filter(|l| l.contains("if ") || l.contains("for ") || l.contains("while ") || l.contains("match ")).count();
+        let complexity = program
+            .lines()
+            .filter(|l| {
+                l.contains("if ")
+                    || l.contains("for ")
+                    || l.contains("while ")
+                    || l.contains("match ")
+            })
+            .count();
         if complexity > 50 {
-            suggestions.push(format!("Program is very complex ({} branches). Consider simplifying.", complexity));
+            suggestions.push(format!(
+                "Program is very complex ({} branches). Consider simplifying.",
+                complexity
+            ));
         }
 
         let non_deterministic = ["rand::", "thread_rng", "SystemTime", "random()"]
@@ -66,7 +77,11 @@ impl Verifier {
         }
 
         let passed = counterexamples.is_empty() && violations.is_empty();
-        let score = if passed { 1.0 } else { 0.5 - 0.1 * counterexamples.len() as f64 - 0.1 * violations.len() as f64 };
+        let score = if passed {
+            1.0
+        } else {
+            0.5 - 0.1 * counterexamples.len() as f64 - 0.1 * violations.len() as f64
+        };
 
         VerificationReport {
             candidate_id: candidate_id.into(),

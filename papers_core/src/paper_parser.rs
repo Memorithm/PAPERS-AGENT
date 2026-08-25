@@ -138,14 +138,20 @@ impl PaperParser {
         let mut seen = std::collections::HashSet::new();
         let mut vars = Vec::new();
         for caps in re.captures_iter(text) {
-            let name = caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let name = caps
+                .get(1)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
             if name.len() <= 1 || seen.contains(&name) {
                 continue;
             }
             seen.insert(name.clone());
             vars.push(VariableDef {
                 name,
-                meaning: caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default(),
+                meaning: caps
+                    .get(2)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default(),
             });
         }
         vars.truncate(30);
@@ -154,10 +160,30 @@ impl PaperParser {
 
     fn extract_datasets(text: &str) -> Vec<String> {
         let keywords = [
-            "dataset", "datasets", "benchmark", "corpus", "pg19", "proof-pile",
-            "c4", "the pile", "pile", "wikitext", "hellaswag", "mmlu", "gsm8k",
-            "swag", "squad", "glue", "superglue", "enwik8", "lambada", "arc",
-            "boolq", "piqa", "winogrande", "openbookqa",
+            "dataset",
+            "datasets",
+            "benchmark",
+            "corpus",
+            "pg19",
+            "proof-pile",
+            "c4",
+            "the pile",
+            "pile",
+            "wikitext",
+            "hellaswag",
+            "mmlu",
+            "gsm8k",
+            "swag",
+            "squad",
+            "glue",
+            "superglue",
+            "enwik8",
+            "lambada",
+            "arc",
+            "boolq",
+            "piqa",
+            "winogrande",
+            "openbookqa",
         ];
 
         let mut found: Vec<String> = Vec::new();
@@ -179,9 +205,25 @@ impl PaperParser {
 
     fn extract_metrics(text: &str) -> Vec<String> {
         let keywords = [
-            "perplexity", "bleu", "rouge", "accuracy", "f1", "precision", "recall",
-            "latency", "throughput", "flops", "params", "memory", "vram", "perplexité",
-            "exact match", "em", "mrr", "ndcg", "map",
+            "perplexity",
+            "bleu",
+            "rouge",
+            "accuracy",
+            "f1",
+            "precision",
+            "recall",
+            "latency",
+            "throughput",
+            "flops",
+            "params",
+            "memory",
+            "vram",
+            "perplexité",
+            "exact match",
+            "em",
+            "mrr",
+            "ndcg",
+            "map",
         ];
 
         let mut found: Vec<String> = Vec::new();
@@ -289,7 +331,8 @@ mod tests {
 
     #[test]
     fn test_extract_github_urls() {
-        let text = "Code available at https://github.com/user/repo and docs at https://github.com/org/lib";
+        let text =
+            "Code available at https://github.com/user/repo and docs at https://github.com/org/lib";
         let urls = PaperParser::extract_github_urls(text);
         assert_eq!(urls.len(), 2);
         assert!(urls.contains(&"https://github.com/user/repo".to_string()));

@@ -5,6 +5,7 @@
 //! JSON, et tombe en fallback heuristique si le LLM est indisponible.
 
 use log::warn;
+use std::cell::RefCell;
 
 use crate::analysis::{
     AlgorithmAnalysis, HeuristicAnalysisResult, HeuristicArchitecturalMapper, MathematicalAnalysis,
@@ -209,11 +210,15 @@ N'invente rien. Sois critique."#;
 /// Analyseur LLM structuré, calqué sur le design de `LLMAnalyzer` Python.
 ///
 /// Chaque méthode appelle le LLM local avec un prompt dédié puis parse la réponse JSON.
-/// En cas d'échec LLM, un fallback heuristique est utilisé.
+/// En cas d'échec LLM, un fallback heuristique est utilisé — sauf en mode strict
+/// (`fallback: false`), où chaque échec est enregistré et remonté explicitement
+/// via [`take_failures`](Self::take_failures) au lieu de passer inaperçu.
 pub struct LLmAnalyzer<'a> {
     client: &'a LlmClient,
     fallback: bool,
     heuristic: HeuristicAnalysisResult,
+    /// Échecs LLM (indisponibilité ou réponse non parsable), avec contexte.
+    failures: RefCell<Vec<String>>,
 }
 
 impl<'a> LLmAnalyzer<'a> {
@@ -221,6 +226,7 @@ impl<'a> LLmAnalyzer<'a> {
         Self {
             client,
             fallback: true,
+            failures: RefCell::new(Vec::new()),
             heuristic: HeuristicAnalysisResult {
                 math: MathematicalAnalysis {
                     equations: Vec::new(),
@@ -236,8 +242,12 @@ impl<'a> LLmAnalyzer<'a> {
                     memory_cost: "INFORMATION NON DISPONIBLE DANS LE PAPIER".into(),
                 },
                 system: SystemRequirements {
-                    vram: None, ram: None, disk: None,
-                    latency: None, throughput: None, scalability: None,
+                    vram: None,
+                    ram: None,
+                    disk: None,
+                    latency: None,
+                    throughput: None,
+                    scalability: None,
                 },
                 architecture: crate::analysis::ArchitecturalMapping::empty(),
                 reproducibility: 0.0,
@@ -253,17 +263,47 @@ impl<'a> LLmAnalyzer<'a> {
         self
     }
 
+    /// Mode strict : désactive le fallback heuristique. Chaque échec LLM est
+    /// enregistré (visible via [`take_failures`](Self::take_failures)) au lieu
+    /// d'être masqué par des résultats heuristiques.
+    pub fn strict(mut self) -> Self {
+        self.fallback = false;
+        self
+    }
+
+    /// Nombre d'échecs LLM enregistrés depuis la création.
+    pub fn failure_count(&self) -> usize {
+        self.failures.borrow().len()
+    }
+
+    /// Récupère et vide les échecs LLM enregistrés (contexte + cause).
+    pub fn take_failures(&self) -> Vec<String> {
+        std::mem::take(&mut *self.failures.borrow_mut())
+    }
+
     // --- appels internes ---
 
-    fn call_llm_json(&self, prompt: &str, system: &str) -> serde_json::Value {
+    fn try_call_llm_json(&self, prompt: &str, system: &str) -> Result<serde_json::Value, String> {
         if !self.client.is_available() {
-            warn!("LLM non disponible, fallback heuristique.");
-            return serde_json::Value::Null;
+            return Err("LLM non disponible".into());
         }
-        match self.client.generate_json(prompt, Some(system)) {
+        self.client.generate_json(prompt, Some(system))
+    }
+
+    /// Appelle le LLM ; en cas d'échec journalise le problème avec son contexte
+    /// puis retourne Null. En mode strict l'échec est aussi enregistré pour
+    /// remontée explicite dans le rapport final.
+    fn call_llm_json(&self, prompt: &str, system: &str, context: &str) -> serde_json::Value {
+        match self.try_call_llm_json(prompt, system) {
             Ok(v) => v,
             Err(e) => {
-                warn!("Erreur LLM: {}. Fallback heuristique.", e);
+                let msg = format!("{context}: {e}");
+                if self.fallback {
+                    warn!("Erreur LLM ({msg}). Fallback heuristique.");
+                } else {
+                    warn!("Erreur LLM en mode strict ({msg}). Section marquée non disponible.");
+                    self.failures.borrow_mut().push(msg);
+                }
                 serde_json::Value::Null
             }
         }
@@ -288,9 +328,7 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     fn get_float(&self, obj: &serde_json::Value, key: &str, default: f64) -> f64 {
-        obj.get(key)
-            .and_then(|v| v.as_f64())
-            .unwrap_or(default)
+        obj.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
     }
 
     // --- API publique ---
@@ -299,7 +337,7 @@ impl<'a> LLmAnalyzer<'a> {
     pub fn analyze_contributions(&self, report: &AnalysisReport) -> Vec<String> {
         let text = prepare_text(&report.document);
         let prompt = CONTRIBUTIONS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "contributions");
 
         let contributions = self.get_string_array(&result, "contributions");
         if contributions.is_empty() && self.fallback {
@@ -312,40 +350,80 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Résumé exécutif.
-    pub fn analyze_executive_summary(&self, title: &str, abs: &str, contributions: &[String]) -> String {
+    pub fn analyze_executive_summary(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+    ) -> String {
         let prompt = EXECUTIVE_SUMMARY_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{contributions}", &contributions.join("\n"));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
-        self.get_string(&result, "executive_summary", "INFORMATION NON DISPONIBLE DANS LE PAPIER")
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "résumé exécutif");
+        self.get_string(
+            &result,
+            "executive_summary",
+            "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+        )
     }
 
     /// Analyse système (VRAM, RAM, etc.).
     pub fn analyze_system(&self, report: &AnalysisReport) -> SystemRequirements {
         let text = prepare_text(&report.document);
         let prompt = SYSTEM_ANALYSIS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "exigences système");
 
         if result.is_null() {
             return self.heuristic.system.clone();
         }
 
         SystemRequirements {
-            vram: Some(self.get_string(&result, "vram_consumption", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            ram: Some(self.get_string(&result, "ram_consumption", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            disk: Some(self.get_string(&result, "disk_io", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            latency: Some(self.get_string(&result, "latency", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            throughput: Some(self.get_string(&result, "throughput", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
-            scalability: Some(self.get_string(&result, "scalability", "INFORMATION NON DISPONIBLE DANS LE PAPIER")),
+            vram: Some(self.get_string(
+                &result,
+                "vram_consumption",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            ram: Some(self.get_string(
+                &result,
+                "ram_consumption",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            disk: Some(self.get_string(
+                &result,
+                "disk_io",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            latency: Some(self.get_string(
+                &result,
+                "latency",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            throughput: Some(self.get_string(
+                &result,
+                "throughput",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
+            scalability: Some(self.get_string(
+                &result,
+                "scalability",
+                "INFORMATION NON DISPONIBLE DANS LE PAPIER",
+            )),
         }
     }
 
     /// Cartographie architecturale.
-    pub fn analyze_architecture(&self, report: &AnalysisReport) -> crate::analysis::ArchitecturalMapping {
+    pub fn analyze_architecture(
+        &self,
+        report: &AnalysisReport,
+    ) -> crate::analysis::ArchitecturalMapping {
         let text = prepare_text(&report.document);
         let prompt = ARCHITECTURE_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+        let result = self.call_llm_json(
+            &prompt,
+            SYSTEM_PAPERS_ANALYST,
+            "cartographie architecturale",
+        );
 
         if result.is_null() && self.fallback {
             return HeuristicArchitecturalMapper::map(
@@ -377,23 +455,32 @@ impl<'a> LLmAnalyzer<'a> {
     pub fn analyze_risks(&self, report: &AnalysisReport) -> Vec<Risk> {
         let text = prepare_text(&report.document);
         let prompt = RISKS_PROMPT.replace("{text}", &safe_truncate(&text, 8000));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "risques");
 
         // Parse le tableau [{level, description, mitigation}]
-        let risks_from_json = result.get("risks").and_then(|v| v.as_array()).map(|arr| {
-            arr.iter().filter_map(|r| {
-                let level = r.get("level").and_then(|v| v.as_str()).unwrap_or("MEDIUM");
-                let description = r.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let mitigation = r.get("mitigation").and_then(|v| v.as_str());
-                if description.is_empty() { None } else {
-                    Some(Risk {
-                        level: level.to_string(),
-                        description: description.to_string(),
-                        mitigation: mitigation.map(|s| s.to_string()),
+        let risks_from_json = result
+            .get("risks")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| {
+                        let level = r.get("level").and_then(|v| v.as_str()).unwrap_or("MEDIUM");
+                        let description =
+                            r.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                        let mitigation = r.get("mitigation").and_then(|v| v.as_str());
+                        if description.is_empty() {
+                            None
+                        } else {
+                            Some(Risk {
+                                level: level.to_string(),
+                                description: description.to_string(),
+                                mitigation: mitigation.map(|s| s.to_string()),
+                            })
+                        }
                     })
-                }
-            }).collect::<Vec<Risk>>()
-        }).unwrap_or_default();
+                    .collect::<Vec<Risk>>()
+            })
+            .unwrap_or_default();
 
         if risks_from_json.is_empty() && self.fallback {
             crate::analysis::RiskAnalyzer::analyze(&report.document, &text)
@@ -407,7 +494,7 @@ impl<'a> LLmAnalyzer<'a> {
     /// Analyse mathématique.
     pub fn analyze_mathematical(&self, text: &str) -> MathematicalAnalysis {
         let prompt = MATHEMATICAL_PROMPT.replace("{text}", &safe_truncate(text, 8000));
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "analyse mathématique");
 
         if result.is_null() {
             return self.heuristic.math.clone();
@@ -417,16 +504,27 @@ impl<'a> LLmAnalyzer<'a> {
     }
 
     /// Plan d'expérimentation.
-    pub fn analyze_experiment(&self, title: &str, abs: &str, contributions: &[String]) -> serde_json::Value {
+    pub fn analyze_experiment(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+    ) -> serde_json::Value {
         let prompt = EXPERIMENT_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{contributions}", &contributions.join("\n"));
-        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST)
+        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "plan d'expérimentation")
     }
 
     /// Pseudo-code.
-    pub fn analyze_pseudocode(&self, title: &str, abs: &str, contributions: &[String], math: &MathematicalAnalysis) -> serde_json::Value {
+    pub fn analyze_pseudocode(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+        math: &MathematicalAnalysis,
+    ) -> serde_json::Value {
         let equations = math.equations.join("\n");
         let variables: String = math
             .variables
@@ -440,18 +538,28 @@ impl<'a> LLmAnalyzer<'a> {
             .replace("{contributions}", &contributions.join("\n"))
             .replace("{equations}", &equations)
             .replace("{variables}", &variables);
-        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST)
+        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "pseudo-code")
     }
 
     /// Scoring LLM (reproductibilité + intégration).
-    pub fn analyze_scoring(&self, title: &str, abs: &str, contributions: &[String], limitations: &[String], code_available: bool) -> Option<(f64, f64)> {
+    pub fn analyze_scoring(
+        &self,
+        title: &str,
+        abs: &str,
+        contributions: &[String],
+        limitations: &[String],
+        code_available: bool,
+    ) -> Option<(f64, f64)> {
         let prompt = SCORING_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{contributions}", &contributions.join("\n"))
             .replace("{limitations}", &limitations.join("\n"))
-            .replace("{code_available}", if code_available { "oui" } else { "non" });
-        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST);
+            .replace(
+                "{code_available}",
+                if code_available { "oui" } else { "non" },
+            );
+        let result = self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "scoring");
 
         if result.is_null() {
             return None;
@@ -465,12 +573,16 @@ impl<'a> LLmAnalyzer<'a> {
 
     /// Analyse approfondie multi-passes.
     pub fn analyze_deep(&self, title: &str, abs: &str, text: &str) -> serde_json::Value {
-        let full_text = if text.len() > 12000 { safe_truncate(text, 12000) } else { text.to_string() };
+        let full_text = if text.len() > 12000 {
+            safe_truncate(text, 12000)
+        } else {
+            text.to_string()
+        };
         let prompt = DEEP_ANALYSIS_PROMPT
             .replace("{title}", title)
             .replace("{abs}", abs)
             .replace("{text}", &full_text);
-        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST)
+        self.call_llm_json(&prompt, SYSTEM_PAPERS_ANALYST, "analyse approfondie")
     }
 }
 
@@ -488,7 +600,14 @@ fn prepare_text(document: &ExtractedDocument) -> String {
 }
 
 fn fallback_contributions(text: &str) -> Vec<String> {
-    let keywords = ["propose", "introduce", "contribution", "we show", "we demonstrate", "we present"];
+    let keywords = [
+        "propose",
+        "introduce",
+        "contribution",
+        "we show",
+        "we demonstrate",
+        "we present",
+    ];
     let mut results = Vec::new();
     for sentence in text.split(['.', '!', '?']) {
         let s = sentence.trim();
@@ -510,7 +629,11 @@ fn variables_from_json(result: &serde_json::Value) -> MathematicalAnalysis {
             arr.iter()
                 .filter_map(|v| {
                     let name = v.get("name").and_then(|n| n.as_str())?.to_string();
-                    let meaning = v.get("meaning").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let meaning = v
+                        .get("meaning")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     Some((name, meaning))
                 })
                 .collect()
@@ -547,4 +670,172 @@ fn normalize_strings(val: Option<&serde_json::Value>) -> Vec<String> {
 /// Safe UTF-8-aware string truncation. Never panics on multi-byte boundaries.
 fn safe_truncate(s: &str, max_chars: usize) -> String {
     s.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::LlmConfig;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+
+    /// Serveur HTTP mock (même principe que celui de llm.rs).
+    fn spawn_mock(responses: Vec<(u16, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock");
+        let addr = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            for (status, body) in responses {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                // Lit les en-têtes ET le corps de la requête : fermer le socket
+                // avec des données non lues déclencherait un RST côté client.
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                let mut content_length = 0usize;
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        content_length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                if content_length > 0 {
+                    let mut sink = vec![0u8; content_length];
+                    let _ = reader.read_exact(&mut sink);
+                }
+                let code = match status {
+                    200 => "200 OK",
+                    _ => "500 Internal Server Error",
+                };
+                let payload = format!(
+                    "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    code,
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(payload.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+            }
+        });
+        addr
+    }
+
+    fn client_at(addr: &str) -> LlmClient {
+        LlmClient::new(LlmConfig {
+            provider: "openai".into(),
+            base_url: format!("http://{}", addr),
+            api_key: None,
+            timeout_secs: 5,
+            retry_attempts: 0,
+            retry_backoff_ms: 1,
+            ..LlmConfig::default()
+        })
+    }
+
+    fn sample_report() -> AnalysisReport {
+        AnalysisReport {
+            document: ExtractedDocument {
+                id: "T-1".into(),
+                title: "Test Paper".into(),
+                authors: vec![],
+                publication_date: None,
+                source: "test".into(),
+                paper_url: None,
+                github_url: None,
+                abstract_text: Some("We propose a novel transformer.".into()),
+                full_text: Some(
+                    "We propose a novel method. Contribution: faster inference.".into(),
+                ),
+                references: vec![],
+                parsed: None,
+            },
+            contributions: Vec::new(),
+            executive_summary: String::new(),
+            equations: Vec::new(),
+            variables: Vec::new(),
+            algorithms: Vec::new(),
+            system_requirements: SystemRequirements {
+                vram: None,
+                ram: None,
+                disk: None,
+                latency: None,
+                throughput: None,
+                scalability: None,
+            },
+            risks: Vec::new(),
+            recommendation: crate::engine::Recommendation::Archive,
+            recommendation_justification: String::new(),
+            integration_score: 0.5,
+            reproducibility_score: 0.5,
+            impacted_modules: Vec::new(),
+            timestamp: String::new(),
+            architectural_mapping: serde_json::Value::Null,
+            deep_analysis: serde_json::Value::Null,
+            experiment_plan: serde_json::Value::Null,
+            pseudo_code: serde_json::Value::Null,
+            llm_warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn strict_mode_records_failure_when_llm_returns_garbage() {
+        let addr = spawn_mock(vec![(200, "ceci n'est pas du json")]);
+        let client = client_at(&addr);
+        let analyzer = LLmAnalyzer::new(&client).strict();
+        let report = sample_report();
+
+        let risks = analyzer.analyze_risks(&report);
+        assert!(
+            risks.is_empty(),
+            "mode strict : pas de fallback heuristique"
+        );
+        assert_eq!(analyzer.failure_count(), 1);
+
+        let failures = analyzer.take_failures();
+        assert!(
+            failures[0].contains("risques"),
+            "contexte attendu: {}",
+            failures[0]
+        );
+        assert_eq!(analyzer.failure_count(), 0, "take_failures vide la liste");
+    }
+
+    #[test]
+    fn fallback_mode_hides_failure_but_does_not_record_it() {
+        let addr = spawn_mock(vec![(200, "toujours pas de json")]);
+        let client = client_at(&addr);
+        let analyzer = LLmAnalyzer::new(&client); // fallback actif
+        let report = sample_report();
+
+        let contributions = analyzer.analyze_contributions(&report);
+        assert!(!contributions.is_empty(), "fallback heuristique appliqué");
+        assert_eq!(
+            analyzer.failure_count(),
+            0,
+            "fallback : aucun échec enregistré"
+        );
+    }
+
+    #[test]
+    fn successful_llm_response_produces_no_failures() {
+        let inner =
+            r#"{"risks":[{"level":"HIGH","description":"dérive","mitigation":"garde-fous"}]}"#;
+        let envelope = format!(
+            r#"{{"choices":[{{"message":{{"content":{}}}}}]}}"#,
+            serde_json::to_string(inner).unwrap()
+        );
+        let addr = spawn_mock(vec![(200, Box::leak(envelope.into_boxed_str()))]);
+        let client = client_at(&addr);
+        let analyzer = LLmAnalyzer::new(&client).strict();
+        let report = sample_report();
+
+        let risks = analyzer.analyze_risks(&report);
+        assert_eq!(risks.len(), 1);
+        assert_eq!(risks[0].level, "HIGH");
+        assert_eq!(analyzer.failure_count(), 0);
+    }
 }

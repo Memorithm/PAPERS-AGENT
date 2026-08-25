@@ -54,39 +54,122 @@ pub struct RegistryStats {
 pub struct PaperRegistry {
     papers: Vec<PaperEntry>,
     path: std::path::PathBuf,
+    /// Vrai si le fichier principal n'a pas pu être chargé (absence de données fiables).
+    degraded: bool,
 }
 
 impl PaperRegistry {
     /// Charge ou crée un registre au chemin donné.
+    ///
+    /// En cas de fichier corrompu ou illisible, tente la restauration depuis
+    /// le backup `<chemin>.bak`. Si aucune source n'est exploitable, le
+    /// registre démarre vide en mode dégradé : [`save`](Self::save) refusera
+    /// alors d'écraser les données disque pour éviter toute perte.
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let path = path.as_ref().to_path_buf();
-        let papers = if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
-                    warn!("Erreur parse PaperRegistry: {}", e);
-                    Vec::new()
-                }),
+        let mut degraded = false;
+        let mut papers = Vec::new();
+
+        if path.exists() {
+            match fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|content| {
+                    serde_json::from_str::<Vec<PaperEntry>>(&content).map_err(|e| e.to_string())
+                }) {
+                Ok(loaded) => papers = loaded,
                 Err(e) => {
-                    warn!("Erreur lecture PaperRegistry: {}", e);
-                    Vec::new()
+                    warn!("PaperRegistry corrompu ({}): {}", path.display(), e);
+                    degraded = true;
+                    let backup = Self::backup_path(&path);
+                    if backup.exists() {
+                        match fs::read_to_string(&backup)
+                            .map_err(|e| e.to_string())
+                            .and_then(|content| {
+                                serde_json::from_str::<Vec<PaperEntry>>(&content)
+                                    .map_err(|e| e.to_string())
+                            }) {
+                            Ok(restored) => {
+                                papers = restored;
+                                warn!(
+                                    "PaperRegistry restauré depuis {}: {} papiers",
+                                    backup.display(),
+                                    papers.len()
+                                );
+                            }
+                            Err(be) => warn!("Backup illisible ({}): {}", backup.display(), be),
+                        }
+                    } else {
+                        warn!(
+                            "Aucun backup disponible ({}); registre démarré à vide en mode dégradé",
+                            backup.display()
+                        );
+                    }
                 }
             }
-        } else {
-            Vec::new()
-        };
+        }
         info!("PaperRegistry chargé: {} papiers", papers.len());
-        Self { papers, path }
+        Self {
+            papers,
+            path,
+            degraded,
+        }
+    }
+
+    fn backup_path(path: &Path) -> std::path::PathBuf {
+        let mut name = path
+            .file_name()
+            .map(|s| s.to_os_string())
+            .unwrap_or_default();
+        name.push(".bak");
+        path.with_file_name(name)
+    }
+
+    /// Indique si le registre a été chargé en mode dégradé (fichier corrompu).
+    pub fn is_degraded(&self) -> bool {
+        self.degraded
     }
 
     /// Sauvegarde le registre sur le disque.
+    ///
+    /// Écriture atomique (fichier temporaire + rename) ; l'ancienne version est
+    /// conservée dans `<chemin>.bak`. Refuse d'écraser un registre corrompu
+    /// avec un état vide afin de ne jamais détruire les données existantes.
     pub fn save(&self) -> Result<(), String> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("Création dossier: {}", e))?;
+        if self.degraded && self.papers.is_empty() {
+            return Err(format!(
+                "Refus de sauvegarder un registre vide par-dessus le fichier corrompu {} \
+                 (données préservées). Restaurez ou supprimez manuellement le fichier.",
+                self.path.display()
+            ));
         }
-        let json = serde_json::to_string_pretty(&self.papers).map_err(|e| format!("Sérialisation: {}", e))?;
-        fs::write(&self.path, &json).map_err(|e| format!("Écriture: {}", e))?;
+        if let Some(parent) = self.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| format!("Création dossier: {}", e))?;
+            }
+        }
+        let json = serde_json::to_string_pretty(&self.papers)
+            .map_err(|e| format!("Sérialisation: {}", e))?;
+
+        let tmp = self.path.with_extension("tmp");
+        fs::write(&tmp, &json).map_err(|e| format!("Écriture temporaire: {}", e))?;
+
+        if self.path.exists() {
+            let backup = Self::backup_path(&self.path);
+            fs::copy(&self.path, &backup).map_err(|e| format!("Copie backup: {}", e))?;
+        }
+        fs::rename(&tmp, &self.path).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("Renommage atomique: {}", e)
+        })?;
         info!("PaperRegistry sauvegardé: {} papiers", self.papers.len());
         Ok(())
+    }
+
+    /// Force l'écrasement du fichier même si le registre est en mode dégradé
+    /// et vide (l'appelant assume la perte des anciennes données).
+    pub fn force_save(&mut self) -> Result<(), String> {
+        self.degraded = false;
+        self.save()
     }
 
     /// Ajoute un papier (évite les doublons par ID).
@@ -210,17 +293,17 @@ impl PaperRegistry {
             let content = [
                 format!("Title: {}", paper.title),
                 format!("Authors: {}", paper.authors.join(", ")),
-                format!("Key Insight: {}", paper.key_insight.as_deref().unwrap_or("")),
+                format!(
+                    "Key Insight: {}",
+                    paper.key_insight.as_deref().unwrap_or("")
+                ),
                 paper.abstract_text.as_deref().unwrap_or("").to_string(),
             ]
             .join("\n\n");
 
             store.add(CognitionItem::new(
                 content,
-                paper
-                    .source
-                    .clone()
-                    .unwrap_or_else(|| paper.title.clone()),
+                paper.source.clone().unwrap_or_else(|| paper.title.clone()),
                 paper.tags.clone(),
             ));
             count += 1;
@@ -285,7 +368,10 @@ impl PaperRegistry {
             results.insert("knowledge_graph".into(), self.import_to_graph(g));
         }
         if let Some((v, offset)) = vs {
-            results.insert("vector_store".into(), self.import_to_vector_store(v, offset));
+            results.insert(
+                "vector_store".into(),
+                self.import_to_vector_store(v, offset),
+            );
         }
         results
     }
@@ -355,5 +441,93 @@ mod tests {
         let stats = reg.stats();
         assert_eq!(stats.total_papers, 1);
         assert_eq!(stats.by_year.get(&2024), Some(&1));
+    }
+
+    #[test]
+    fn test_save_creates_backup_and_roundtrips() {
+        let dir = std::env::temp_dir().join(format!("papers_reg_bak_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("registry.json");
+
+        let mut reg = PaperRegistry::new(&path);
+        assert!(!reg.is_degraded());
+        reg.add(make_test_entry("B1"));
+        reg.save().expect("first save");
+
+        reg.add(make_test_entry("B2"));
+        reg.save().expect("second save");
+
+        // Le backup contient l'état précédent (1 papier).
+        let bak = dir.join("registry.json.bak");
+        assert!(bak.exists(), "backup should exist after second save");
+        let backup: Vec<PaperEntry> =
+            serde_json::from_str(&fs::read_to_string(&bak).unwrap()).unwrap();
+        assert_eq!(backup.len(), 1);
+        assert_eq!(backup[0].id, "B1");
+
+        // Rechargement : les 2 papiers sont présents.
+        let reloaded = PaperRegistry::new(&path);
+        assert_eq!(reloaded.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_corrupted_registry_restores_from_backup() {
+        let dir = std::env::temp_dir().join(format!("papers_reg_corrupt_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("registry.json");
+
+        // État sain : deux sauvegardes successives => .bak contient l'état précédent.
+        let mut reg = PaperRegistry::new(&path);
+        reg.add(make_test_entry("R1"));
+        reg.save().unwrap();
+        reg.add(make_test_entry("R2"));
+        reg.save().unwrap();
+
+        // Corruption du fichier principal.
+        fs::write(&path, "%%%pas du json%%%").unwrap();
+
+        let recovered = PaperRegistry::new(&path);
+        assert!(
+            recovered.is_degraded(),
+            "corruption must mark degraded mode"
+        );
+        assert_eq!(recovered.len(), 1, "must fall back to previous .bak state");
+        assert!(recovered.get("R1").is_some());
+
+        // La re-sauvegarde est autorisée car les données ont été récupérées.
+        recovered.save().unwrap();
+        assert_eq!(PaperRegistry::new(&path).len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_refuses_to_wipe_corrupted_registry() {
+        let dir = std::env::temp_dir().join(format!("papers_refuse_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("registry.json");
+        fs::write(&path, "{corrompu sans backup").unwrap();
+
+        let mut reg = PaperRegistry::new(&path);
+        assert!(
+            reg.is_degraded(),
+            "unparseable file must mark degraded mode"
+        );
+        assert!(reg.is_empty());
+
+        let err = reg.save().expect_err("save must refuse to wipe data");
+        assert!(err.contains("Refus"), "unexpected error: {err}");
+        // Le fichier d'origine est intact sur disque (aucun écrasement).
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("corrompu"));
+
+        // force_save assume explicitement la perte.
+        reg.force_save().unwrap();
+        assert!(!reg.is_degraded());
+        assert!(PaperRegistry::new(&path).is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -36,12 +36,23 @@ impl MathematicalAnalyzer {
             .collect();
 
         let loss_kws = [
-            "loss", "perte", "objective", "coût", "coût", "L =", "\\mathcal{L}",
+            "loss",
+            "perte",
+            "objective",
+            "coût",
+            "coût",
+            "L =",
+            "\\mathcal{L}",
         ];
         let losses = Self::extract_sentences_by_keywords(text, &loss_kws, 10);
 
         let transform_kws = [
-            "transformation", "mapping", "projection", "embedding", "encode", "decode",
+            "transformation",
+            "mapping",
+            "projection",
+            "embedding",
+            "encode",
+            "decode",
         ];
         let transformations = Self::extract_sentences_by_keywords(text, &transform_kws, 10);
 
@@ -116,14 +127,38 @@ impl AlgorithmAnalyzer {
         let mut steps = Vec::new();
 
         let step_patterns = [
-            (r"(?:first|initially|start)\b.{20,200}?(?:\.|;)", "Initialisation"),
-            (r"(?:then|next|subsequently|after\s+that)\b.{20,200}?(?:\.|;)", "Étape principale"),
-            (r"(?:finally|lastly|in\s+the\s+end)\b.{20,200}?(?:\.|;)", "Finalisation"),
-            (r"(?:step\s+\d+|phase\s+\d+|stage\s+\d+)\s*[:\-–—]?\s*.{20,200}?(?:\.|;)", "Étape"),
-            (r"(?:input|preprocess|normalize|tokenize)\b.{20,200}?(?:\.|;)", "Prétraitement"),
-            (r"(?:compute|calculate|estimate|evaluate|optimize)\b.{20,200}?(?:\.|;)", "Calcul"),
-            (r"(?:output|return|produce|generate|emit)\b.{20,200}?(?:\.|;)", "Sortie"),
-            (r"(?:update|iterate|loop|repeat|converge)\b.{20,200}?(?:\.|;)", "Mise à jour"),
+            (
+                r"(?:first|initially|start)\b.{20,200}?(?:\.|;)",
+                "Initialisation",
+            ),
+            (
+                r"(?:then|next|subsequently|after\s+that)\b.{20,200}?(?:\.|;)",
+                "Étape principale",
+            ),
+            (
+                r"(?:finally|lastly|in\s+the\s+end)\b.{20,200}?(?:\.|;)",
+                "Finalisation",
+            ),
+            (
+                r"(?:step\s+\d+|phase\s+\d+|stage\s+\d+)\s*[:\-–—]?\s*.{20,200}?(?:\.|;)",
+                "Étape",
+            ),
+            (
+                r"(?:input|preprocess|normalize|tokenize)\b.{20,200}?(?:\.|;)",
+                "Prétraitement",
+            ),
+            (
+                r"(?:compute|calculate|estimate|evaluate|optimize)\b.{20,200}?(?:\.|;)",
+                "Calcul",
+            ),
+            (
+                r"(?:output|return|produce|generate|emit)\b.{20,200}?(?:\.|;)",
+                "Sortie",
+            ),
+            (
+                r"(?:update|iterate|loop|repeat|converge)\b.{20,200}?(?:\.|;)",
+                "Mise à jour",
+            ),
         ];
 
         for (pat, label) in &step_patterns {
@@ -177,7 +212,13 @@ impl AlgorithmAnalyzer {
 
         // Extract algorithmic phrases
         let lower = text.to_lowercase();
-        let algo_kw = ["algorithm", "pseudocode", "procédure", "procedure", "function"];
+        let algo_kw = [
+            "algorithm",
+            "pseudocode",
+            "procédure",
+            "procedure",
+            "function",
+        ];
         let mut lines = Vec::new();
 
         if let Ok(re_sent) = regex::Regex::new(r"[.!?]\s+") {
@@ -326,7 +367,8 @@ impl SystemAnalyzer {
         let params = param_count?;
 
         // fp32: 4 bytes/param, fp16: 2 bytes/param, int8: 1 byte/param
-        let precision = if text.contains("int4") || text.contains("4-bit") || text.contains("qlora") {
+        let precision = if text.contains("int4") || text.contains("4-bit") || text.contains("qlora")
+        {
             0.5
         } else if text.contains("int8") || text.contains("8-bit") {
             1.0
@@ -455,7 +497,11 @@ impl ArchitecturalMapping {
 pub struct HeuristicArchitecturalMapper;
 
 impl HeuristicArchitecturalMapper {
-    pub fn map(document: &ExtractedDocument, executive_summary: &str, contributions: &[String]) -> ArchitecturalMapping {
+    pub fn map(
+        document: &ExtractedDocument,
+        executive_summary: &str,
+        contributions: &[String],
+    ) -> ArchitecturalMapping {
         let text = [
             document.title.clone(),
             document.abstract_text.clone().unwrap_or_default(),
@@ -469,14 +515,96 @@ impl HeuristicArchitecturalMapper {
         let mut mapping = ArchitecturalMapping::empty();
 
         let keywords: Vec<(&str, Vec<&str>)> = vec![
-            ("memory", vec!["memory", "mémoire", "kv cache", "long-term memory", "retrieval", "rag", "store", "recall"]),
-            ("perception", vec!["perception", "embedding", "representation", "encoding", "encoder", "feature"]),
-            ("planning", vec!["planning", "planification", "plan", "search", "mcts", "tree", "subgoal"]),
-            ("decision", vec!["decision", "policy", "choix", "reasoning", "raisonnement", "inference"]),
-            ("action", vec!["action", "tool use", "act", "execution", "environment", "agent"]),
-            ("learning", vec!["learning", "apprentissage", "training", "fine-tuning", "distillation", "update"]),
-            ("reflection", vec!["reflection", "reflect", "self-correct", "self-evaluation", "introspection"]),
-            ("evaluation", vec!["evaluation", "eval", "benchmark", "metric", "reward", "score"]),
+            (
+                "memory",
+                vec![
+                    "memory",
+                    "mémoire",
+                    "kv cache",
+                    "long-term memory",
+                    "retrieval",
+                    "rag",
+                    "store",
+                    "recall",
+                ],
+            ),
+            (
+                "perception",
+                vec![
+                    "perception",
+                    "embedding",
+                    "representation",
+                    "encoding",
+                    "encoder",
+                    "feature",
+                ],
+            ),
+            (
+                "planning",
+                vec![
+                    "planning",
+                    "planification",
+                    "plan",
+                    "search",
+                    "mcts",
+                    "tree",
+                    "subgoal",
+                ],
+            ),
+            (
+                "decision",
+                vec![
+                    "decision",
+                    "policy",
+                    "choix",
+                    "reasoning",
+                    "raisonnement",
+                    "inference",
+                ],
+            ),
+            (
+                "action",
+                vec![
+                    "action",
+                    "tool use",
+                    "act",
+                    "execution",
+                    "environment",
+                    "agent",
+                ],
+            ),
+            (
+                "learning",
+                vec![
+                    "learning",
+                    "apprentissage",
+                    "training",
+                    "fine-tuning",
+                    "distillation",
+                    "update",
+                ],
+            ),
+            (
+                "reflection",
+                vec![
+                    "reflection",
+                    "reflect",
+                    "self-correct",
+                    "self-evaluation",
+                    "introspection",
+                ],
+            ),
+            (
+                "evaluation",
+                vec![
+                    "evaluation",
+                    "eval",
+                    "benchmark",
+                    "metric",
+                    "reward",
+                    "score",
+                ],
+            ),
         ];
 
         for (pillar, kws) in &keywords {
@@ -506,7 +634,10 @@ impl HeuristicArchitecturalMapper {
         if !mapping.perception.is_empty() {
             mapping.impacted_modules.push("perception_module".into());
         }
-        if !mapping.decision.is_empty() || !mapping.planning.is_empty() || !mapping.evaluation.is_empty() {
+        if !mapping.decision.is_empty()
+            || !mapping.planning.is_empty()
+            || !mapping.evaluation.is_empty()
+        {
             mapping.impacted_modules.push("reasoning_module".into());
         }
         if !mapping.planning.is_empty() {
@@ -576,20 +707,40 @@ impl ScoringEngine {
         let has_code = document
             .full_text
             .as_deref()
-            .map(|t| t.contains("```") || t.contains("fn ") || t.contains("def ") || t.contains("class "))
+            .map(|t| {
+                t.contains("```") || t.contains("fn ") || t.contains("def ") || t.contains("class ")
+            })
             .unwrap_or(false);
-        let has_full_text = document.full_text.as_deref().map(|t| t.len() > 10000).unwrap_or(false);
+        let has_full_text = document
+            .full_text
+            .as_deref()
+            .map(|t| t.len() > 10000)
+            .unwrap_or(false);
         let has_github = document.github_url.is_some();
 
         let documentation = if has_full_text { 0.8 } else { 0.5 };
         let code_available = if has_github { 0.5 } else { 0.0 };
         let code_examples = if has_code { 0.3 } else { 0.0 };
 
-        0.4 * documentation + 0.3 * code_available + 0.3 * code_examples
+        // Normalisation par le score maximal atteignable (tous signaux présents)
+        // pour que la reproductibilité s'exprime sur [0, 1] : sans cela, le
+        // plafond effectif serait 0.4*0.8 + 0.3*0.5 + 0.3*0.3 = 0.56.
+        const MAX_ATTAINABLE: f64 = 0.4 * 0.8 + 0.3 * 0.5 + 0.3 * 0.3;
+        ((0.4 * documentation + 0.3 * code_available + 0.3 * code_examples) / MAX_ATTAINABLE)
+            .min(1.0)
     }
 
-    pub fn compute_integration(document: &ExtractedDocument, reproducibility: f64, has_equations: bool, has_references: bool) -> f64 {
-        let code_avail = if document.github_url.is_some() { 0.3 } else { 0.0 };
+    pub fn compute_integration(
+        document: &ExtractedDocument,
+        reproducibility: f64,
+        has_equations: bool,
+        has_references: bool,
+    ) -> f64 {
+        let code_avail = if document.github_url.is_some() {
+            0.3
+        } else {
+            0.0
+        };
         let eq_score = if has_equations { 0.2 } else { 0.05 };
         let ref_score = if has_references { 0.1 } else { 0.0 };
         (reproducibility * 0.4 + code_avail + eq_score + ref_score).min(1.0)
@@ -610,14 +761,17 @@ impl RiskAnalyzer {
             risks.push(Risk {
                 level: "MEDIUM".into(),
                 description: "Aucun code source n'est associé à la publication.".into(),
-                mitigation: Some("Contacter les auteurs ou tenter une reproduction indépendante.".into()),
+                mitigation: Some(
+                    "Contacter les auteurs ou tenter une reproduction indépendante.".into(),
+                ),
             });
         }
 
         if text.is_empty() {
             risks.push(Risk {
                 level: "HIGH".into(),
-                description: "Texte complet non disponible, l'analyse repose sur l'abstract.".into(),
+                description: "Texte complet non disponible, l'analyse repose sur l'abstract."
+                    .into(),
                 mitigation: Some("Récupérer le PDF complet pour une analyse approfondie.".into()),
             });
         }
@@ -634,14 +788,23 @@ pub struct HeuristicAnalyzer;
 
 impl HeuristicAnalyzer {
     /// Exécute toutes les analyses heuristiques et retourne les résultats structurés.
-    pub fn analyze(document: &ExtractedDocument, executive_summary: &str, contributions: &[String]) -> HeuristicAnalysisResult {
+    pub fn analyze(
+        document: &ExtractedDocument,
+        executive_summary: &str,
+        contributions: &[String],
+    ) -> HeuristicAnalysisResult {
         let text = document.full_text.as_deref().unwrap_or("");
         let math = MathematicalAnalyzer::analyze(text);
         let algo = AlgorithmAnalyzer::analyze(text);
         let sys = SystemAnalyzer::analyze(text);
         let arch = HeuristicArchitecturalMapper::map(document, executive_summary, contributions);
         let reproducibility = ScoringEngine::compute_reproducibility(document);
-        let integration = ScoringEngine::compute_integration(document, reproducibility, !math.equations.is_empty(), !document.references.is_empty());
+        let integration = ScoringEngine::compute_integration(
+            document,
+            reproducibility,
+            !math.equations.is_empty(),
+            !document.references.is_empty(),
+        );
         let risks = RiskAnalyzer::analyze(document, text);
 
         HeuristicAnalysisResult {
@@ -711,5 +874,161 @@ impl HeuristicAnalysisResult {
             complexity: Some(self.algo.overall_complexity.clone()),
             pseudocode: Some(self.algo.pseudocode.clone()),
         }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::Risk;
+
+    fn doc(full_text: Option<&str>, github: bool) -> ExtractedDocument {
+        ExtractedDocument {
+            id: "A-1".into(),
+            title: "Paper d'analyse".into(),
+            authors: vec![],
+            publication_date: None,
+            source: "test".into(),
+            paper_url: None,
+            github_url: if github {
+                Some("https://github.com/x/y".into())
+            } else {
+                None
+            },
+            abstract_text: None,
+            full_text: full_text.map(|s| s.to_string()),
+            references: vec![],
+            parsed: None,
+        }
+    }
+
+    #[test]
+    fn mathematical_analyzer_extracts_equations_and_variables() {
+        // NB : la regex des variables est gourmande ([^\n]+) → une affectation
+        // par ligne maximum ; on place donc les affectations sur des lignes distinctes.
+        let text = "La fonction objectif est $L = \\sum_i (y_i - f(x_i))^2$\n\
+                    avec alpha = 0.01.\n\
+                    La transformation mapping appliquée aux entrées.";
+        let math = MathematicalAnalyzer::analyze(text);
+        assert!(
+            math.equations.iter().any(|e| e.contains("L =")),
+            "équations: {:?}",
+            math.equations
+        );
+        assert!(math.variables.iter().any(|(n, _)| n == "alpha"));
+        assert!(
+            !math.transformations.is_empty(),
+            "mot-clé 'transformation' détecté"
+        );
+    }
+
+    #[test]
+    fn mathematical_analyzer_on_empty_text_is_safe() {
+        let math = MathematicalAnalyzer::analyze("");
+        assert!(math.equations.is_empty());
+        assert!(math.variables.is_empty());
+        assert!(math.loss_functions.is_empty());
+    }
+
+    #[test]
+    fn scoring_reproducibility_bounds_and_signals() {
+        // Aucun signal : documentation partielle seulement.
+        let bare = ScoringEngine::compute_reproducibility(&doc(None, false));
+        assert!((0.0..=1.0).contains(&bare));
+
+        // GitHub + code + texte long : score maximal attendu.
+        let long_code = format!("{}{}", "fn example() {{ }} ".repeat(600), "```");
+        let rich = ScoringEngine::compute_reproducibility(&doc(Some(&long_code), true));
+        assert!(rich > bare, "riche ({rich}) doit dépasser nu ({bare})");
+        assert!(
+            (rich - 1.0).abs() < 1e-9,
+            "tous signaux présents → ~1.0, obtenu {rich}"
+        );
+    }
+
+    #[test]
+    fn scoring_integration_is_clamped_to_one() {
+        let d = doc(Some("texte"), true);
+        // repro=1.0, github=0.3, equations=0.2, refs=0.1 → somme ≥ 1 → clampée à 1.
+        let s = ScoringEngine::compute_integration(&d, 1.0, true, true);
+        assert!(
+            (s - 1.0).abs() < 1e-9,
+            "score clampé à 1 attendu, obtenu {s}"
+        );
+        // Cas minimal sans aucun signal.
+        let bare_doc = doc(None, false);
+        let s2 = ScoringEngine::compute_integration(&bare_doc, 0.0, false, false);
+        assert!((s2 - 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn risk_analyzer_flags_missing_code_and_text() {
+        let risks = RiskAnalyzer::analyze(&doc(None, false), "");
+        let levels: Vec<&str> = risks.iter().map(|r: &Risk| r.level.as_str()).collect();
+        assert!(levels.contains(&"MEDIUM"), "pas de code → risque moyen");
+        assert!(levels.contains(&"HIGH"), "pas de texte → risque haut");
+
+        // Tout est fourni : aucun risque heuristique.
+        let clean = RiskAnalyzer::analyze(&doc(Some("texte complet"), true), "texte complet");
+        assert!(clean.is_empty());
+    }
+
+    #[test]
+    fn heuristic_analyzer_end_to_end_consistency() {
+        let text = "Nous proposons $E = mc^2$. L'algorithme utilise une boucle for. \
+                    La loss objective minimise l'erreur. Performance sur GPU requise.";
+        let d = doc(Some(text), false);
+        let result = HeuristicAnalyzer::analyze(&d, "résumé", &["contribution".to_string()]);
+        assert!((0.0..=1.0).contains(&result.reproducibility));
+        assert!((0.0..=1.0).contains(&result.integration));
+        // Pas de code associé → au moins un risque signalé.
+        assert!(!result.risks.is_empty());
+
+        // enrich_report propage les champs dans le rapport.
+        let mut report = crate::engine::AnalysisReport {
+            document: d,
+            contributions: Vec::new(),
+            executive_summary: String::new(),
+            equations: Vec::new(),
+            variables: Vec::new(),
+            algorithms: Vec::new(),
+            system_requirements: crate::engine::SystemRequirements {
+                vram: None,
+                ram: None,
+                disk: None,
+                latency: None,
+                throughput: None,
+                scalability: None,
+            },
+            risks: Vec::new(),
+            recommendation: crate::engine::Recommendation::Reject,
+            recommendation_justification: String::new(),
+            integration_score: 0.0,
+            reproducibility_score: 0.0,
+            impacted_modules: Vec::new(),
+            timestamp: String::new(),
+            architectural_mapping: serde_json::Value::Null,
+            deep_analysis: serde_json::Value::Null,
+            experiment_plan: serde_json::Value::Null,
+            pseudo_code: serde_json::Value::Null,
+            llm_warnings: Vec::new(),
+        };
+        result.enrich_report(&mut report);
+        assert!((report.integration_score - result.integration).abs() < 1e-12);
+        assert!(!report.risks.is_empty());
+        assert_eq!(report.algorithms.len(), 1);
+
+        // architecture_json expose tous les piliers.
+        let arch = result.architecture_json();
+        for pillar in [
+            "perception",
+            "memory",
+            "planning",
+            "decision",
+            "action",
+            "learning",
+        ] {
+            assert!(arch.get(pillar).is_some(), "pilier {pillar} manquant");
+        }
     }
 }

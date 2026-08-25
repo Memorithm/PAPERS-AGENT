@@ -271,6 +271,88 @@ pub struct ScientificBundle {
 }
 
 impl ScientificBundle {
+    /// Sérialise le bundle en JSON Lines : la première ligne décrit le papier
+    /// et la provenance, chaque ligne suivante porte un claim autonome.
+    ///
+    /// Format adapté aux pipelines de streaming/analyse externe.
+    pub fn to_jsonl(&self) -> Result<String, String> {
+        use serde_json::json;
+
+        let mut out = String::new();
+        let header = json!({
+            "record_type": "paper",
+            "schema": self.schema,
+            "paper": self.paper,
+            "provenance": self.provenance,
+            "proposal_count": self.proposals.len(),
+        });
+        out.push_str(
+            &serde_json::to_string(&header).map_err(|e| format!("sérialisation header: {e}"))?,
+        );
+        out.push('\n');
+
+        for claim in &self.claims {
+            let record = json!({
+                "record_type": "claim",
+                "claim": claim,
+            });
+            out.push_str(
+                &serde_json::to_string(&record).map_err(|e| format!("sérialisation claim: {e}"))?,
+            );
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// Table CSV plate des claims (une ligne par claim).
+    ///
+    /// Les champs scalaires sont exposés tels quels ; les listes sont jointes
+    /// par « ; ». Toutes les cellules sont échappées (guillemets doublés) et
+    /// entourées de guillemets. L'en-tête est toujours émis en première ligne.
+    pub fn claims_to_csv(&self) -> String {
+        const HEADER: &str = "id,paper_id,kind,state,statement,method,algorithm,baseline,dataset,metrics,expected_effect,reported_effect,confidence,assumptions,evidence_count";
+        let mut rows = vec![HEADER.to_string()];
+
+        for c in &self.claims {
+            let kind = format!("{:?}", c.kind).to_lowercase();
+            let state = format!("{:?}", c.state).to_lowercase();
+            let metrics = c.metrics.join(";");
+            let assumptions = c.assumptions.join(";");
+            let confidence = c.confidence.map(|v| v.to_string());
+            let evidence_count = c.evidence.len().to_string();
+            let cells: [Option<&str>; 15] = [
+                Some(&c.id),
+                Some(&c.paper_id),
+                Some(kind.as_str()),
+                Some(state.as_str()),
+                Some(c.statement.as_str()),
+                c.method.as_deref(),
+                c.algorithm.as_deref(),
+                c.baseline.as_deref(),
+                c.dataset.as_deref(),
+                Some(metrics.as_str()),
+                c.expected_effect.as_deref(),
+                c.reported_effect.as_deref(),
+                confidence.as_deref(),
+                Some(assumptions.as_str()),
+                Some(evidence_count.as_str()),
+            ];
+            let line = cells
+                .into_iter()
+                .map(|cell| {
+                    let value = cell.unwrap_or_default();
+                    format!("\"{}\"", value.replace('"', "\"\""))
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            rows.push(line);
+        }
+
+        let mut csv = rows.join("\n");
+        csv.push('\n');
+        csv
+    }
+
     pub fn from_analysis_report(
         report: &AnalysisReport,
         model: Option<ModelProvenance>,
@@ -506,6 +588,92 @@ mod tests {
         let span = EvidenceSpan::analysis_field("analysis.x", "hello");
         let expected = sha256_hex(b"hello");
         assert_eq!(span.text_sha256.as_deref(), Some(expected.as_str()));
+    }
+
+    fn claim_fixture(id: &str) -> ScientificClaim {
+        ScientificClaim {
+            schema: SCIENTIFIC_CLAIM_SCHEMA.into(),
+            id: id.into(),
+            paper_id: "paper-1".into(),
+            kind: ClaimKind::Contribution,
+            statement: format!("statement for {id} with \"quotes\" and, commas"),
+            state: ClaimState::Reported,
+            evidence: vec![EvidenceSpan::analysis_field("analysis.abstract", "text")],
+            assumptions: vec!["assumption-a".into(), "assumption-b".into()],
+            method: Some("TiledMethod".into()),
+            algorithm: None,
+            baseline: None,
+            dataset: None,
+            metrics: vec!["latency".into()],
+            expected_effect: None,
+            reported_effect: None,
+            limitations: Vec::new(),
+            falsification_criteria: Vec::new(),
+            confidence: None,
+            provenance: provenance(),
+        }
+    }
+
+    fn bundle_fixture() -> ScientificBundle {
+        ScientificBundle {
+            schema: SCIENTIFIC_BUNDLE_SCHEMA.into(),
+            paper: PaperIdentity {
+                id: "paper-1".into(),
+                title: "Fixture Paper".into(),
+                authors: vec!["A".into()],
+                publication_date: None,
+                source: "fixture".into(),
+                paper_url: None,
+                github_url: None,
+            },
+            claims: vec![claim_fixture("claim-1"), claim_fixture("claim-2")],
+            proposals: Vec::new(),
+            provenance: provenance(),
+        }
+    }
+
+    #[test]
+    fn jsonl_has_header_and_one_line_per_claim() {
+        let bundle = bundle_fixture();
+        let jsonl = bundle.to_jsonl().expect("jsonl");
+        let lines: Vec<&str> = jsonl.lines().collect();
+        assert_eq!(lines.len(), 3, "1 header + 2 claims");
+
+        let header: serde_json::Value = serde_json::from_str(lines[0]).expect("header JSON");
+        assert_eq!(header["record_type"], "paper");
+        assert_eq!(header["paper"]["id"], "paper-1");
+
+        let first: serde_json::Value = serde_json::from_str(lines[1]).expect("claim JSON");
+        assert_eq!(first["record_type"], "claim");
+        assert_eq!(first["claim"]["id"], "claim-1");
+        // Chaque ligne est un JSON autonome (re-parseable indépendamment).
+        let second: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(second["claim"]["id"], "claim-2");
+    }
+
+    #[test]
+    fn csv_escapes_quotes_and_commas_with_stable_header() {
+        let bundle = bundle_fixture();
+        let csv = bundle.claims_to_csv();
+        let mut rows = csv.lines();
+
+        let header = rows.next().expect("header présent");
+        assert_eq!(
+            header,
+            "id,paper_id,kind,state,statement,method,algorithm,baseline,dataset,metrics,expected_effect,reported_effect,confidence,assumptions,evidence_count"
+        );
+
+        let row = rows.next().expect("premier claim");
+        assert!(row.contains("\"statement for claim-1 with \"\"quotes\"\" and, commas\""));
+        // Les séparateurs de cellules sont exactement les séquences `","`
+        // (les virgules internes sont protégées par les guillemets).
+        assert_eq!(row.split("\",\"").count(), 15, "15 colonnes");
+        assert!(
+            row.ends_with(",\"1\""),
+            "evidence_count en dernière colonne"
+        );
+
+        assert_eq!(rows.count(), 1, "un seul claim restant");
     }
 
     #[test]

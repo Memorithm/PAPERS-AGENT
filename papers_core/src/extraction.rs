@@ -65,9 +65,10 @@ impl ArxivExtractor {
 
 impl SourceExtractor for ArxivExtractor {
     fn can_handle(&self, source: &str) -> bool {
-        source.contains("arxiv.org") || regex::Regex::new(r"^\d{4}\.\d{4,5}$")
-            .map(|re| re.is_match(source))
-            .unwrap_or(false)
+        source.contains("arxiv.org")
+            || regex::Regex::new(r"^\d{4}\.\d{4,5}$")
+                .map(|re| re.is_match(source))
+                .unwrap_or(false)
     }
 
     fn extract(&self, source: &str) -> Result<ExtractedDocument, String> {
@@ -76,19 +77,26 @@ impl SourceExtractor for ArxivExtractor {
 
         info!("Extraction arXiv: {}", paper_id);
 
-        let url = format!("http://export.arxiv.org/api/query?search_query=id:{}&max_results=1", paper_id);
-        let resp = self.client.get(&url).send()
+        let url = format!(
+            "http://export.arxiv.org/api/query?search_query=id:{}&max_results=1",
+            paper_id
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .send()
             .map_err(|e| format!("Erreur HTTP arXiv: {}", e))?;
-        let body = resp.text()
+        let body = resp
+            .text()
             .map_err(|e| format!("Erreur lecture arXiv: {}", e))?;
 
         // Parsing XML basique de la réponse arXiv API
-        let title = extract_xml_tag(&body, "title")
-            .unwrap_or_else(|| paper_id.clone());
+        let title = extract_xml_tag(&body, "title").unwrap_or_else(|| paper_id.clone());
         let summary = extract_xml_tag(&body, "summary");
         let published = extract_xml_tag(&body, "published");
         let authors = extract_xml_tags(&body, "author", "name");
-        let pdf_url = body.lines()
+        let pdf_url = body
+            .lines()
             .find(|l| l.contains("title=\"pdf\""))
             .and_then(|l| {
                 let start = l.find("href=\"")? + 6;
@@ -111,7 +119,84 @@ impl SourceExtractor for ArxivExtractor {
         })
     }
 
-    fn name(&self) -> &str { "arxiv" }
+    fn name(&self) -> &str {
+        "arxiv"
+    }
+}
+
+/// Recherche les derniers papiers arXiv correspondant à une requête libre.
+///
+/// Utilise l'API Atom d'arXiv (`search_query=all:{query}`) triée par date de
+/// soumission décroissante. Retourne au plus `max_results` documents.
+pub fn search_arxiv_latest(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<ExtractedDocument>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("client HTTP: {e}"))?;
+    let url = format!(
+        "http://export.arxiv.org/api/query?search_query=all:{}&sortBy=submittedDate&sortOrder=descending&max_results={}",
+        urlencode(query),
+        max_results
+    );
+    let body = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("Erreur HTTP arXiv: {e}"))?
+        .text()
+        .map_err(|e| format!("Erreur lecture arXiv: {e}"))?;
+
+    Ok(parse_arxiv_feed(&body))
+}
+
+/// Parse un flux Atom arXiv en documents (un par `<entry>`).
+fn parse_arxiv_feed(body: &str) -> Vec<ExtractedDocument> {
+    let mut docs = Vec::new();
+    // Chaque papier est contenu dans un bloc <entry>…</entry>.
+    for chunk in body.split("</entry>") {
+        let entry = match chunk.find("<entry>") {
+            Some(pos) => &chunk[pos..],
+            None => continue,
+        };
+        let id_url = extract_xml_tag(entry, "id").unwrap_or_default();
+        let paper_id = id_url.rsplit('/').next().unwrap_or("").to_string();
+        if paper_id.is_empty() {
+            continue;
+        }
+        docs.push(ExtractedDocument {
+            id: format!("ARXIV-{}", paper_id.replace('.', "-")),
+            title: extract_xml_tag(entry, "title").unwrap_or_else(|| paper_id.clone()),
+            authors: extract_xml_tags(entry, "author", "name"),
+            publication_date: extract_xml_tag(entry, "published"),
+            source: "arXiv".into(),
+            paper_url: Some(format!("https://arxiv.org/abs/{paper_id}")),
+            github_url: None,
+            abstract_text: extract_xml_tag(entry, "summary"),
+            full_text: None,
+            references: Vec::new(),
+            parsed: None,
+        });
+    }
+    docs
+}
+
+/// Encodage minimal pour paramètre de requête (espaces + non-alphanumériques).
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => out.push(ch),
+            _ => {
+                let mut buf = [0u8; 4];
+                for byte in ch.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{byte:02X}"));
+                }
+            }
+        }
+    }
+    out
 }
 
 // ── Extracteur PDF ──────────────────────────────────────────────
@@ -125,7 +210,9 @@ impl Default for PdfExtractor {
 }
 
 impl PdfExtractor {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl SourceExtractor for PdfExtractor {
@@ -146,23 +233,23 @@ impl SourceExtractor for PdfExtractor {
             return Err(format!("Fichier PDF non trouvé: {}", source));
         }
 
-        let text = pdf_extract::extract_text(path)
-            .map_err(|e| format!("Erreur extraction PDF: {}", e))?;
+        let text =
+            pdf_extract::extract_text(path).map_err(|e| format!("Erreur extraction PDF: {}", e))?;
 
-        let stem = path.file_stem()
+        let stem = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
 
         let parsed = PaperParser::parse(&text, Some(stem));
         let title = parsed.title.clone().unwrap_or_else(|| stem.to_string());
-        let abstract_text = parsed.abstract_text.clone()
-            .or_else(|| {
-                if text.len() > 2000 {
-                    Some(text[..2000].to_string())
-                } else {
-                    Some(text.clone())
-                }
-            });
+        let abstract_text = parsed.abstract_text.clone().or_else(|| {
+            if text.len() > 2000 {
+                Some(text[..2000].to_string())
+            } else {
+                Some(text.clone())
+            }
+        });
         let github = parsed.github_urls.first().cloned();
 
         Ok(ExtractedDocument {
@@ -180,7 +267,9 @@ impl SourceExtractor for PdfExtractor {
         })
     }
 
-    fn name(&self) -> &str { "pdf" }
+    fn name(&self) -> &str {
+        "pdf"
+    }
 }
 
 // ── Extracteur Texte brut ───────────────────────────────────────
@@ -194,7 +283,9 @@ impl Default for PlainTextExtractor {
 }
 
 impl PlainTextExtractor {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl SourceExtractor for PlainTextExtractor {
@@ -215,23 +306,23 @@ impl SourceExtractor for PlainTextExtractor {
             return Err(format!("Fichier non trouvé: {}", source));
         }
 
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("Erreur lecture fichier: {}", e))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("Erreur lecture fichier: {}", e))?;
 
-        let stem = path.file_stem()
+        let stem = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
 
         let parsed = PaperParser::parse(&text, Some(stem));
         let title = parsed.title.clone().unwrap_or_else(|| stem.to_string());
-        let abstract_text = parsed.abstract_text.clone()
-            .or_else(|| {
-                if text.len() > 2000 {
-                    Some(text[..2000].to_string())
-                } else {
-                    Some(text.clone())
-                }
-            });
+        let abstract_text = parsed.abstract_text.clone().or_else(|| {
+            if text.len() > 2000 {
+                Some(text[..2000].to_string())
+            } else {
+                Some(text.clone())
+            }
+        });
         let github = parsed.github_urls.first().cloned();
 
         Ok(ExtractedDocument {
@@ -249,7 +340,9 @@ impl SourceExtractor for PlainTextExtractor {
         })
     }
 
-    fn name(&self) -> &str { "text" }
+    fn name(&self) -> &str {
+        "text"
+    }
 }
 
 // ── Extracteur URL ──────────────────────────────────────────────
@@ -283,9 +376,13 @@ impl SourceExtractor for UrlExtractor {
     fn extract(&self, source: &str) -> Result<ExtractedDocument, String> {
         info!("Extraction URL: {}", source);
 
-        let resp = self.client.get(source).send()
+        let resp = self
+            .client
+            .get(source)
+            .send()
             .map_err(|e| format!("Erreur HTTP: {}", e))?;
-        let text = resp.text()
+        let text = resp
+            .text()
             .map_err(|e| format!("Erreur lecture réponse: {}", e))?;
 
         let abstract_text = if text.len() > 2000 {
@@ -309,7 +406,9 @@ impl SourceExtractor for UrlExtractor {
         })
     }
 
-    fn name(&self) -> &str { "url" }
+    fn name(&self) -> &str {
+        "url"
+    }
 }
 
 // ── Pipeline d'extraction ───────────────────────────────────────
@@ -361,7 +460,11 @@ fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    if cleaned.is_empty() { None } else { Some(cleaned) }
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 fn extract_xml_tags(xml: &str, parent: &str, child: &str) -> Vec<String> {
@@ -419,6 +522,56 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_arxiv_feed_multiple_entries() {
+        let feed = r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>ArXiv Query</title>
+  <entry>
+    <id>http://arxiv.org/abs/2608.01234v1</id>
+    <updated>2026-08-20T18:00:00Z</updated>
+    <published>2026-08-20T18:00:00Z</published>
+    <title>First Paper About
+      Memory</title>
+    <summary>Abstract of first paper.</summary>
+    <author><name>Alice Author</name></author>
+    <author><name>Bob Builder</name></author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2608.05678v2</id>
+    <published>2026-08-21T09:00:00Z</published>
+    <title>Second Paper</title>
+    <summary>Abstract of second paper.</summary>
+    <author><name>Carol Chen</name></author>
+  </entry>
+</feed>"#;
+
+        let docs = parse_arxiv_feed(feed);
+        assert_eq!(docs.len(), 2);
+        assert_eq!(docs[0].id, "ARXIV-2608-01234v1");
+        assert_eq!(docs[0].title, "First Paper About Memory");
+        assert_eq!(docs[0].authors.len(), 2);
+        assert_eq!(docs[0].authors[0], "Alice Author");
+        assert_eq!(docs[1].id, "ARXIV-2608-05678v2");
+        assert_eq!(
+            docs[1].paper_url.as_deref(),
+            Some("https://arxiv.org/abs/2608.05678v2")
+        );
+
+        // Flux vide ou sans entry → aucun document.
+        assert!(parse_arxiv_feed("<feed></feed>").is_empty());
+    }
+
+    #[test]
+    fn test_urlencode_spaces_and_specials() {
+        assert_eq!(
+            urlencode("reinforcement learning"),
+            "reinforcement%20learning"
+        );
+        assert_eq!(urlencode("a&b"), "a%26b");
+        assert_eq!(urlencode("safe-token_1.0"), "safe-token_1.0");
+    }
+
+    #[test]
     fn test_text_can_handle() {
         let ext = PlainTextExtractor::new();
         assert!(ext.can_handle("/path/to/file.txt"));
@@ -438,8 +591,14 @@ mod tests {
     #[test]
     fn test_extract_xml_tag() {
         let xml = "<entry><title>Test Title</title><summary>Abstract here</summary></entry>";
-        assert_eq!(extract_xml_tag(xml, "title"), Some("Test Title".to_string()));
-        assert_eq!(extract_xml_tag(xml, "summary"), Some("Abstract here".to_string()));
+        assert_eq!(
+            extract_xml_tag(xml, "title"),
+            Some("Test Title".to_string())
+        );
+        assert_eq!(
+            extract_xml_tag(xml, "summary"),
+            Some("Abstract here".to_string())
+        );
         assert_eq!(extract_xml_tag(xml, "nonexistent"), None);
     }
 }
