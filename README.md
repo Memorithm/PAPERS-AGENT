@@ -1,26 +1,32 @@
 # PAPERS V2 — Moteur d'évolution autonome en Rust
 
-[![Rust](https://img.shields.io/badge/Rust-10453%20lignes-orange)](papers_core/)
-[![Tests](https://img.shields.io/badge/tests-106%20OK-green)](papers_core/)
+[![Rust](https://img.shields.io/badge/Rust-15%2C7k%20lignes-orange)](papers_core/)
+[![Tests](https://img.shields.io/badge/tests-194%20OK-green)](papers_core/)
 [![Build](https://img.shields.io/badge/build-0%20warnings-brightgreen)]()
-[![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
+[![Clippy](https://img.shields.io/badge/clippy--strict-0%20warnings-brightgreen)]()
 
-**PAPERS V2** transforme l'analyse de papiers scientifiques en code Rust vivant via une boucle d'évolution autonome.  
-Le pipeline complet : **extraction** → **analyse** → **évolution** → **rapport Markdown**.
+**PAPERS V2** transforme l'analyse de papiers scientifiques en hypothèses vérifiables et en code Rust candidat via une boucle d'évolution.  
+Le pipeline complet : **extraction** → **analyse** → **évolution** → **rapport** (Markdown/PDF) → **bundle scientifique versionné**.
 
 ```
-📄 Source (PDF/arXiv/URL) → 🔬 Analyse LLM+heuristique → 🧬 Évolution code Rust → 📊 Rapport .md
+📄 Source (PDF/arXiv/URL) → 🔬 Analyse LLM+heuristique → 🧬 Évolution code Rust
+                          → 📊 Rapport .md/.pdf → 📦 bundle memorithm.science/bundle-v1
+                          → 🧪 soumission CCOS Research Lab (exécution empirique)
 ```
+
+> **Principe de responsabilité** : PAPERS *propose* des hypothèses et des candidats de code.
+> L'évaluation empirique appartient à un runtime externe (CCOS Research Lab / RSI) — le core
+> refuse par conception de fabriquer des scores synthétiques (`nas.rs` fail-closed,
+> `wasm_executor` n'exécute que du WASM réellement compilé).
 
 ---
 
 ## 🚀 Démarrage rapide
 
 ### Prérequis
-- **Rust** 1.70+
-- **Ollama** (optionnel, pour l'analyse LLM)
-- **CUDA** 13.0+ (optionnel, pour l'inférence GPU)
-- **GPU NVIDIA** recommandé (Thor/Blackwell ARM64 ou x86_64)
+- **Rust** 1.75+
+- **Ollama** (optionnel, pour l'analyse LLM) ou toute API OpenAI-compatible
+- `rustup target add wasm32-unknown-unknown` (optionnel, pour exécuter les candidats en sandbox)
 
 ### Build
 ```bash
@@ -31,12 +37,12 @@ cargo build --release
 
 ### Tests
 ```bash
-cargo test          # 106 tests (90 unit + 16 intégration)
+cargo test          # 194 tests (172 unit + 22 intégration), clippy strict -D warnings
 ```
 
 ---
 
-## 📋 CLI — 8 commandes
+## 📋 CLI — 12 commandes
 
 ```bash
 # Pipeline complet
@@ -54,14 +60,33 @@ papers analyze -s paper.pdf -o ./output            # Avec LLM (gemma4:e2b)
 # Évolution seule
 papers evolve -t "Implémente un tri parallèle en Rust" -r 50
 
-# Recherche sémantique
+# Recherche sémantique (indexe le corpus seed si aucune base n'existe)
 papers search -q "reinforcement learning" -k 5
 
-# Génération de rapport
+# Génération de rapport / PDF
 papers report -i analysis.json -o rapport.md
+papers pdf -i analysis.json
 
-# Statut
-papers status
+# Surveillance arXiv : nouveaux papiers par topic dans le registre
+papers watch --topics "recursive self-improvement" "agent memory" \
+             --interval-secs 3600 --registry ./papers_registry.json
+
+# Métriques Prometheus
+papers serve-metrics --port 9091                   # GET /metrics
+
+# Mode interactif (REPL)
+papers interactive
+```
+
+### Export scientific bundle (`papers-contract`)
+```bash
+# JSON (défaut), JSONL (streaming) ou CSV (table plate des claims)
+papers-contract -i analysis.json --format jsonl
+papers-contract -i analysis.json --format csv
+
+# Soumission au CCOS Research Lab + polling optionnel
+papers-contract -i analysis.json --lab-url http://127.0.0.1:8080 \
+                [--lab-key sk-...] [--wait-secs 600]
 ```
 
 ### Flags communs
@@ -70,123 +95,152 @@ papers status
 | `-s, --source` | — | Source (PDF, arXiv ID, URL) |
 | `-o, --output` | `./output` | Répertoire de sortie |
 | `-r, --rounds` | `50` | Rounds d'évolution max |
-| `-p, --policy` | `greedy` | Stratégie d'échantillonnage |
+| `-p, --policy` | `greedy` | Stratégie d'échantillonnage (`greedy`, `ucb1`, `random`, `island`) |
 | `-c, --candidates` | `3` | Candidats par round |
-| `--model` | `gemma4:e2b` | Modèle LLM |
+| `--model` | `gemma4:e2b` | Modèle LLM (source unique : `config.rs`) |
 | `--no-llm` | `false` | Désactiver le LLM (analyse heuristique) |
-| `--evolve` | `false` | Activer l'évolution |
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-papers_core/                    # Moteur Rust (9969 lignes, 34 modules)
+papers_core/                    # ~15,7k lignes, 44 fichiers
 ├── src/
-│   ├── main.rs                 # Point d'entrée CLI + REPL interactif
-│   ├── cli.rs                  # Définition CLI (clap, 10 commandes)
+│   ├── main.rs                 # Point d'entrée CLI + REPL + watch + serve-metrics
+│   ├── cli.rs                  # Définition CLI (clap, 12 commandes)
 │   ├── config.rs               # Configuration figment (TOML + env vars)
-│   ├── engine.rs               # Orchestrateur principal (extract → analyze → evolve)
+│   ├── engine.rs               # Orchestrateur principal + corpus seed partagé
 │   ├── lib.rs                  # Re-exports publics
 │   │
-│   ├── extraction.rs           # Pipeline PDF/arXiv/URL/Texte
+│   ├── extraction.rs           # Pipeline PDF/arXiv/URL/Texte + recherche arXiv (watch)
 │   ├── paper_parser.rs         # Parser sémantique (regex, sections, équations)
-│   ├── paper_registry.rs       # Registre des papiers analysés
+│   ├── paper_registry.rs       # Registre persistant : backup .bak, écriture atomique,
+│   │                           #   refus d'écraser un fichier corrompu
 │   │
-│   ├── doc_store.rs            # Store vectoriel persistant (remplace ChromaDB)
-│   ├── vector_store.rs         # HNSW ANN index (remplace FAISS)
-│   ├── embedding.rs            # Wrapper scirust-core::EmbeddingEngine (128-dim)
-│   ├── embedding_onnx.rs       # ONNX Runtime (all-MiniLM-L6-v2) + fallback déterministe
+│   ├── doc_store.rs            # Store vectoriel persistant
+│   ├── vector_store.rs         # HNSW ANN index
+│   ├── embedding.rs            # Embedding TF-IDF + feature hashing signé (128-dim),
+│   │                           #   déterministe et rejouable
+│   ├── embedding_onnx.rs       # ONNX Runtime MiniLM + fallback déterministe
+│   ├── embedding_cache.rs      # Cache disque persistant (clé SHA-256 dim|texte)
 │   │
-│   ├── reporting.rs            # Générateur de rapports Markdown
+│   ├── reporting.rs            # Rapports Markdown (+ section avertissements LLM)
 │   ├── pdf.rs                  # Export PDF structuré (Helvetica/Courier, tables, code)
-│   ├── analysis.rs             # Analyse heuristique + scoring
-│   ├── llm_analyzer.rs         # Analyse LLM multi-passes (11 méthodes)
+│   ├── analysis.rs             # Analyse heuristique + scoring normalisé [0,1]
+│   ├── llm_analyzer.rs         # Analyse LLM multi-passes ; mode strict collecte les
+│   │                           #   échecs explicitement (llm_warnings du rapport)
 │   │
-│   ├── evolution/              # Boucle d'évolution Researcher→Engineer→Analyzer
-│   │   ├── mod.rs              # EvolutionLoop (run_advanced, UCB1/Greedy/Random)
-│   │   ├── researcher.rs       # Génération code Rust par LLM (7 domaines fallback)
-│   │   ├── engineer.rs         # Évaluation structurale + WASM sandbox
+│   ├── evolution/              # Boucle Researcher→Engineer→Analyzer
+│   │   ├── mod.rs              # EvolutionLoop (run_advanced, UCB1/Greedy/Random/Island)
+│   │   ├── researcher.rs       # Génération code Rust par LLM + fallback templates
+│   │   ├── engineer.rs         # Évaluation structurelle + sandbox WASM
 │   │   └── analyzer.rs         # Analyse résultats + cognition update
 │   │
-│   ├── llm.rs                  # Client LLM (Ollama + OpenAI)
+│   ├── llm.rs                  # Client Ollama + OpenAI-compatible : timeouts, retry
+│   │                           #   exponentiel sur 5xx/réseau, api_key optionnelle
+│   ├── ccos.rs                 # Client CCOS Research Lab : submit/poll/result/wait
+│   ├── metrics_server.rs       # Compteurs Prometheus + serveur HTTP /metrics
 │   ├── cognition.rs            # Base de connaissances textuelle
-│   ├── database.rs             # Base de données avec recherche vectorielle
-│   ├── models.rs               # Modèles de données (Node, EvolutionConfig, ...)
-│   ├── samplers.rs             # Stratégies d'échantillonnage
+│   ├── database.rs             # Base de nœuds + recherche vectorielle optionnelle
+│   ├── models.rs               # Node, EvolutionConfig, ...
+│   ├── samplers.rs             # greedy / ucb1 / random / island
 │   │
-│   ├── symbolic.rs             # Wrapper scirust-symreg + scirust-solvers
-│   ├── nas.rs                  # Wrapper scirust-nas
-│   ├── graph.rs                # GraphMiner + scirust-neuro-symbolic
+│   ├── symbolic.rs             # Régression affine moindres carrés, RK4, Simpson
+│   ├── nas.rs                  # Fail-closed : délègue le NAS au runtime externe
+│   ├── graph.rs                # GraphMiner (petgraph papier↔tags)
 │   ├── pattern_induction.rs    # Induction de motifs
 │   ├── falsification.rs        # Falsification d'hypothèses
-│   ├── verifier.rs             # Vérification formelle
-│   ├── probabilistic.rs        # Raisonnement probabiliste
+│   ├── verifier.rs             # Vérification heuristique (anti-random, complexité)
+│   ├── probabilistic.rs        # Raisonnement bayésien (statrs)
 │   │
-│   ├── wasm_executor.rs        # Sandbox WASM (wasmtime, fuel limits)
-│   ├── gpu.rs                  # Détection CUDA/NVIDIA automatique
+│   ├── wasm_executor.rs        # Sandbox wasmtime fuel/epoch + compilation RÉELLE
+│   │                           #   Rust→wasm32-unknown-unknown des candidats
+│   ├── gpu.rs                  # Détection CUDA/NVIDIA, scoring à poids configurables
 │   ├── container.rs            # CacheContainer, KnowledgeContainer, EventContainer
 │   ├── queue.rs                # WorkQueue prioritaire, ResultQueue, Backpressure
 │   ├── signaling.rs            # EventBus, Signal, Barrier, Latch, Rendezvous
-│   └── probes.rs               # Benchmark probe (compilation, perf, sécu)
+│   ├── probes.rs               # Sonde benchmark : compilation réelle via rustc
+│   │                           #   (--emit=metadata, timeout), perf/mémoire estimées
+│   └── scientific_contract.rs  # Schémas memorithm.science v1, SHA-256, exports
+│                               #   JSON / JSONL / CSV
+└── tests/                      # 22 tests d'intégration (dont CLI black-box)
 ```
 
-### Dépendances externes
+### Dépendances clés
 | Crate | Rôle |
 |-------|------|
-| `scirust-core` | Moteur de calcul scientifique (MiniLLM, autodiff, embedding) |
-| `scirust-symreg` | Régression symbolique |
-| `scirust-solvers` | Solveurs numériques |
-| `scirust-neuro-symbolic` | Graphe de connaissances neuro-symbolique |
-| `scirust-nas` | Neural Architecture Search |
-| `scirust-symbolic` | Moteur symbolique |
-| `wasmtime` | Sandbox WASM pour exécution sécurisée |
-| `ort` | ONNX Runtime (inférence on-device) |
+| `wasmtime` | Sandbox WASM (fuel + epoch interruption) pour exécution réelle des candidats |
+| `ort` | ONNX Runtime (embeddings MiniLM on-device, fallback déterministe) |
 | `hnsw_rs` | Index ANN pour recherche vectorielle |
-| `figment` | Configuration TOML + env vars |
-| `anyhow` / `thiserror` | Gestion d'erreurs |
-| `tracing` / `metrics` | Observabilité |
+| `metrics` + `metrics-exporter-prometheus` | Observabilité `/metrics` (versions appariées 0.22/0.13) |
+| `figment` | Configuration TOML + env vars (`PAPERS_LLM__MODEL=…`) |
 | `pdf-extract` | Extraction texte PDF |
-| `reqwest` | Client HTTP (arXiv API, Ollama, OpenAI) |
-| `serde` / `clap` / `ndarray` | Sérialisation, CLI, calcul matriciel |
+| `reqwest` (blocking) | arXiv API, Ollama/OpenAI, CCOS Research Lab |
+| `statrs` / `ndarray` / `petgraph` | Statistiques, algèbre, graphes |
 
 ---
 
 ## 🧬 Fonctionnement
 
 ### Pipeline complet (`papers run`)
-1. **Extraction** : le document est extrait (PDF via `pdf-extract`, arXiv via API, URL via HTTP)
-2. **Analyse** : le texte est parsé sémantiquement (sections, équations, GitHub URLs, références), puis analysé par le LLM (contributions, résumé exécutif)
-3. **Évolution** (si `--evolve`) : une boucle d'évolution génère du code Rust via le LLM, évalue les candidats, et converge vers la meilleure solution
-4. **Rapport** : un rapport Markdown complet est généré (`analysis_report.md`, `evolution_report.md`, `best_program.rs`)
+1. **Extraction** : PDF (`pdf-extract`), arXiv (API Atom), URL HTTP ou texte brut
+2. **Analyse** : parsing sémantique puis LLM multi-passes (contributions, résumé, architecture,
+   risques, math, pseudo-code). En mode strict, chaque échec LLM est tracé dans
+   `llm_warnings` du rapport JSON et rendu visible dans le Markdown — jamais avalé.
+3. **Évolution** (`--evolve`) : génération de candidats Rust, évaluation structurelle,
+   exécution sandboxée réelle quand la cible wasm32 est installée
+4. **Rapports** : `analysis_report.md`, `extracted_document.json`, `evolution_report.md`,
+   `best_program.rs`, export PDF possible
 
-### Évolution
-- **Config** : rounds, candidats/round, politique d'échantillonnage, patience
-- **Samplers** : `greedy`, `ucb1`, `random`, `island`
-- **Évaluation** : le LLM génère du code Rust, un score heuristique est attribué (présence de `fn`, `struct`, accolades)
-- **Arrêt** : score cible atteint OU patience (rounds sans amélioration)
+### Évaluation des candidats
+- **Compilation réelle** : `rustc --target wasm32-unknown-unknown --crate-type=cdylib`
+  puis exécution wasmtime avec limite de fuel et deadline epoch
+- Convention d'entrée : le candidat définit `pub fn run()` — un adaptateur généré expose
+  `#[no_mangle] extern "C" fn main()` qui l'appelle
+- Si la cible wasm32 est absente : refus explicite avec instruction
+  `rustup target add wasm32-unknown-unknown` (jamais de score inventé)
 
-### Embedding
-- **Moteur** : `scirust-core::EmbeddingEngine` — MiniLLM char-level transformer 128-dim
-- **Utilisation** : recherche sémantique de papiers, indexation automatique des nœuds d'évolution
-- **Remplace** : `sentence-transformers/all-MiniLM-L6-v2` (384-dim), `chromadb`, `faiss-cpu`
+### Embeddings
+- **Défaut** : TF-IDF + signed feature hashing FNV-1a 64 (128-dim), déterministe, testable
+- **ONNX** : all-MiniLM-L6-v2 via `ort` quand le modèle est fourni
+- **Cache** : `EmbeddingCache` persistant (SHA-256 `dim|texte` → vecteur), écriture atomique,
+  tolérant aux corruptions — évite de recalculer entre deux runs
 
 ---
 
-## 📊 Migration Python → Rust
+## ⚙️ Configuration (`config.toml` / env)
 
-| Module Python | Module Rust | Lignes | Statut |
-|---------------|-------------|--------|--------|
-| `extraction/extractors.py` | `extraction.rs` | 421 | ✅ Fini |
-| `extraction/semantic.py` | `paper_parser.rs` | 283 | ✅ Fini |
-| `knowledge/vector_store.py` | `doc_store.rs` | 368 | ✅ Fini |
-| `core/orchestrator.py` | `engine.rs` | 410 | ✅ Fini |
-| `utils/reporting.py` | `reporting.rs` | 263 | ✅ Fini |
-| `infra/llm_client.py` | `llm.rs` | 137 | ✅ Fini |
-| `infra/faiss_index.py` | `vector_store.rs` | 265 | ✅ Fini |
-| `infra/embedding.py` | `embedding.rs` | 132 | ✅ Fini |
-| `evolution/*` | `evolution.rs` + `cognition.rs` + `database.rs` | 373 | 🔄 Partiel |
-| `intelligence/*` | 6 modules Rust | 648 | ✅ Fini |
+```toml
+[llm]
+provider = "ollama"          # ou "openai"
+model = "gemma4:e2b"         # constante unique DEFAULT_LLM_MODEL
+base_url = "http://localhost:11434"
+api_key = ""                 # None => aucun header Authorization envoyé
+timeout_secs = 300
+retry_attempts = 3           # backoff exponentiel sur réseau/5xx
+retry_backoff_ms = 500
+
+[gpu.score_weights.training] # poids de sélection GPU configurables
+memory_factor = 0.002
+compute_high = 15.0
+vendor_bonus = 10.0
+```
+
+Variables d'environnement : préfixe `PAPERS_`, séparateur `__`
+(ex. `PAPERS_LLM__API_KEY=sk-...`).
+
+---
+
+## 📊 Métriques exposées
+
+| Métrique | Sens |
+|----------|------|
+| `papers_extractions_total` | Documents extraits |
+| `papers_analyses_total` | Analyses réalisées |
+| `papers_evolutions_total` | Boucles d'évolution lancées |
+| `papers_llm_calls_total` / `papers_llm_failures_total` | Trafic LLM |
+| `papers_watch_papers_found_total` | Nouveaux papiers détectés par watch |
 
 ---
 
@@ -201,36 +255,19 @@ Ollama doit être en cours d'exécution (`ollama serve`). Modèles testés :
 | `gemma4:31b` | 19 Go | Haute qualité |
 | `qwen3-coder:30b` | 18 Go | Optimisé code |
 
-Détection GPU automatique. Sur NVIDIA Thor (ARM64) → `ollama ps` affiche `100% GPU`.
+Toute API OpenAI-compatible fonctionne aussi : `PAPERS_LLM__PROVIDER=openai`,
+`PAPERS_LLM__BASE_URL=https://…`, `PAPERS_LLM__API_KEY=…`.
 
 ---
 
-## 📝 Exemple de sortie
+## 🛡️ Garanties d'intégrité
 
-```bash
-$ papers run -s 2401.00001 --evolve -o /tmp/example
-
-╔══════════════════════════════════════════╗
-║   PAPERS V2 - Pipeline Complet (Rust)    ║
-╚══════════════════════════════════════════╝
-
-📄 Source: 2401.00001
-🤖 LLM: gemma4:e2b
-🧬 Évolution: activée
-📁 Sortie: /tmp/example
-
-✅ Extraction: Sector Rotation Strategy (arXiv)
-✅ Analyse: score intégration = 0.65, recommandation = PROTOTYPE
-🧬 Évolution: best=0.7234, 150 candidats, 45.2s
-
-📊 Rapports sauvegardés dans: /tmp/example
-   - analysis_report.md
-   - extracted_document.json
-   - evolution_report.md
-   - best_program.rs
-
-⏱️  Durée totale: 47.3s
-```
+- `PaperRegistry` : sauvegarde atomique (tmp + rename), backup `.bak` automatique,
+  restauration au chargement, **refus d'écraser** un registre corrompu avec un état vide
+  (`force_save()` pour assumer explicitement la perte)
+- `ScientificBundle` : SHA-256 du contenu extrait et de l'analyse, identités de claims
+  déterministes, validation stricte des schémas v1
+- Aucun score empirique fabriqué localement : NAS fail-closed, WASM réel ou refus motivé
 
 ---
 

@@ -622,12 +622,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
-name = "crunchy"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
-
-[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1036,17 +1030,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "half"
-version = "2.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
-dependencies = [
- "cfg-if",
- "crunchy",
- "zerocopy",
 ]
 
 [[package]]
@@ -1728,17 +1711,6 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde3af1a009ed76a778cb84fdef9e7dbbdf5775ae3e4cc1f434a6a307f6f76c5"
-dependencies = [
- "ahash",
- "metrics-macros",
- "portable-atomic",
-]
-
-[[package]]
-name = "metrics"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56d05972e8cbac2671e85aa9d04d9160d193f8bebd1a5c1a2f4542c62e65d1d0"
@@ -1758,23 +1730,12 @@ dependencies = [
  "hyper-tls 0.5.0",
  "indexmap",
  "ipnet",
- "metrics 0.22.4",
+ "metrics",
  "metrics-util",
  "quanta",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "metrics-macros"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b4faf00617defe497754acde3024865bc143d44a86799b24e191ecff91354f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1786,7 +1747,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "hashbrown 0.14.5",
- "metrics 0.22.4",
+ "metrics",
  "num_cpus",
  "quanta",
  "sketches-ddsketch",
@@ -1850,23 +1811,7 @@ dependencies = [
  "num-traits",
  "rand 0.8.6",
  "rand_distr",
- "simba 0.8.1",
- "typenum",
-]
-
-[[package]]
-name = "nalgebra"
-version = "0.33.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d43ddcacf343185dfd6de2ee786d9e8b1c2301622afab66b6c73baf9882abfd"
-dependencies = [
- "approx",
- "matrixmultiply",
- "nalgebra-macros",
- "num-complex",
- "num-rational",
- "num-traits",
- "simba 0.9.1",
+ "simba",
  "typenum",
 ]
 
@@ -1911,7 +1856,6 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
- "serde",
 ]
 
 [[package]]
@@ -1996,16 +1940,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-bigint"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
-dependencies = [
- "num-integer",
- "num-traits",
-]
-
-[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2029,7 +1963,6 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
- "num-bigint",
  "num-integer",
  "num-traits",
 ]
@@ -2166,7 +2099,7 @@ dependencies = [
  "figment",
  "hnsw_rs",
  "log",
- "metrics 0.21.1",
+ "metrics",
  "metrics-exporter-prometheus",
  "ndarray 0.17.2",
  "ndarray-stats",
@@ -2178,16 +2111,11 @@ dependencies = [
  "rand 0.8.6",
  "regex",
  "reqwest",
- "scirust-core",
- "scirust-nas",
- "scirust-neuro-symbolic",
- "scirust-solvers",
- "scirust-symbolic",
- "scirust-symreg",
  "semver",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "statrs",
  "tempfile",
  "thiserror 1.0.69",
@@ -2780,127 +2708,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scirust-autodiff"
-version = "0.1.0"
-
-[[package]]
-name = "scirust-core"
-version = "0.1.0"
-dependencies = [
- "half",
- "libc",
- "matrixmultiply",
- "nalgebra 0.33.3",
- "ndarray 0.16.1",
- "num-bigint",
- "num-traits",
- "rand 0.8.6",
- "rand_distr",
- "rayon",
- "scirust-autodiff",
- "scirust-gpu-macros",
- "scirust-macros",
- "scirust-simd",
- "scirust-symbolic",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "scirust-evo"
-version = "0.1.0"
-dependencies = [
- "rand 0.8.6",
- "rand_distr",
- "rayon",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "scirust-gpu-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "scirust-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "scirust-nas"
-version = "0.1.0"
-dependencies = [
- "scirust-core",
- "scirust-evo",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "scirust-neuro-symbolic"
-version = "0.1.0"
-dependencies = [
- "log",
- "scirust-core",
- "scirust-symbolic",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "scirust-simd"
-version = "0.1.0"
-dependencies = [
- "libc",
- "scirust-simd-macros",
-]
-
-[[package]]
-name = "scirust-simd-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "scirust-solvers"
-version = "0.1.0"
-dependencies = [
- "scirust-autodiff",
- "scirust-symbolic",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "scirust-symbolic"
-version = "0.1.0"
-dependencies = [
- "ndarray 0.16.1",
- "serde",
-]
-
-[[package]]
-name = "scirust-symreg"
-version = "0.1.0"
-dependencies = [
- "scirust-symbolic",
-]
-
-[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3066,19 +2873,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simba"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c99284beb21666094ba2b75bbceda012e610f5479dfcc2d6e2426f53197ffd95"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
-]
-
-[[package]]
 name = "simd-adler32"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3161,7 +2955,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f697a07e4606a0a25c044de247e583a330dbb1731d11bc7350b81f48ad567255"
 dependencies = [
  "approx",
- "nalgebra 0.32.6",
+ "nalgebra",
  "num-traits",
  "rand 0.8.6",
 ]

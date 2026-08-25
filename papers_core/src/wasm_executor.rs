@@ -1,8 +1,69 @@
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use wasmtime::*;
+
+/// Cible de compilation pour l'exécution sandboxée.
+const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
+/// Délai maximal d'une invocation rustc pour la compilation candidat→WASM.
+const RUSTC_TIMEOUT_SECS: u64 = 60;
+
+/// Échecs possibles de la compilation Rust → WASM.
+#[derive(Debug, Clone)]
+pub enum CompileToWasmError {
+    /// Le binaire `rustc` n'est pas disponible dans l'environnement.
+    RustcUnavailable,
+    /// La cible `wasm32-unknown-unknown` n'est pas installée
+    /// (`rustup target add wasm32-unknown-unknown`).
+    WasmTargetMissing,
+    /// Erreur de compilation du candidat (extrait stderr inclus).
+    Compilation(String),
+    /// Erreur d'E/S locale (tempdir, lecture/écriture).
+    Io(String),
+}
+
+impl CompileToWasmError {
+    fn message(&self) -> String {
+        match self {
+            Self::RustcUnavailable => {
+                "rustc introuvable : impossible de compiler le candidat vers WASM".into()
+            }
+            Self::WasmTargetMissing => {
+                "cible wasm32-unknown-unknown absente : exécutez `rustup target add \
+                 wasm32-unknown-unknown` pour activer l'exécution réelle des candidats"
+                    .into()
+            }
+            Self::Compilation(msg) => msg.clone(),
+            Self::Io(msg) => format!("E/S compilation WASM: {msg}"),
+        }
+    }
+}
+
+impl std::fmt::Display for CompileToWasmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message())
+    }
+}
+
+/// Génère l'adaptateur `main` selon le contenu du candidat.
+fn adapter_for(source: &str) -> &'static str {
+    let has_exported_main = source.contains("no_mangle")
+        && source.contains("extern \"C\"")
+        && (source.contains("fn main(") || source.contains("fn main ()"));
+    if has_exported_main {
+        return "";
+    }
+    if source.contains("fn run(") || source.contains("fn run ()") {
+        // Candidat conforme à la convention `run()` : appel réel.
+        "\n// Adaptateur généré par PAPERS : exposition de run() comme point d'entrée.\n#[no_mangle]\npub extern \"C\" fn main() {\n    run();\n}\n"
+    } else {
+        // Aucun point d'entrée identifiable : module minimal exécutable.
+        "\n// Adaptateur généré par PAPERS : point d'entrée vide (aucun run() détecté).\n#[no_mangle]\npub extern \"C\" fn main() {}\n"
+    }
+}
 
 /// Configuration for WASM sandbox execution.
 #[derive(Debug, Clone)]
@@ -47,6 +108,9 @@ impl WasmExecutor {
     pub fn new(config: WasmConfig) -> Result<Self> {
         let mut engine_config = wasmtime::Config::new();
         engine_config.epoch_interruption(true);
+        // Requis pour que Store::set_fuel fonctionne : sans cette option,
+        // toute exécution réelle échouait avec "fuel is not configured".
+        engine_config.consume_fuel(true);
         engine_config.async_support(false);
 
         let engine = Engine::new(&engine_config)?;
@@ -176,18 +240,125 @@ impl WasmExecutor {
     /// be delegated to a real compiler/evaluator (RSI/CCOS Research Lab) or the
     /// caller must explicitly compile the program to WASM and call [`execute`].
     pub fn execute_rust_source(&self, source: &str) -> Result<WasmResult> {
-        let reason = if !source.contains("fn ") {
-            "Rust source rejected before execution: no function definition found"
-        } else {
-            "Rust source was not executed: compile it to WASM and call execute(), or delegate empirical evaluation to RSI/CCOS Research Lab"
+        let start = Instant::now();
+        if !source.contains("fn ") {
+            return Ok(WasmResult {
+                success: false,
+                output: String::new(),
+                error: Some(
+                    "Rust source rejected before execution: no function definition found".into(),
+                ),
+                fuel_consumed: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
+        match self.compile_source_to_wasm(source) {
+            Ok(wasm_bytes) => self.execute(&wasm_bytes),
+            Err(e) => Ok(WasmResult {
+                success: false,
+                output: String::new(),
+                error: Some(e.message()),
+                fuel_consumed: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            }),
+        }
+    }
+
+    /// Compile réellement un source Rust vers WASM (`wasm32-unknown-unknown`)
+    /// pour exécution sandboxée par [`Self::execute`].
+    ///
+    /// Convention d'entrée :
+    /// - le source exporte déjà `#[no_mangle] pub extern "C" fn main()` → il
+    ///   est compilé tel quel ;
+    /// - le source définit `fn run()` (zéro arg) → un adaptateur généré appelle
+    ///   `run` depuis `main` ;
+    /// - sinon → un `main` vide est ajouté : le module s'exécute mais n'a pas
+    ///   de comportement observable (le résultat reste néanmoins réel).
+    pub fn compile_source_to_wasm(
+        &self,
+        source: &str,
+    ) -> std::result::Result<Vec<u8>, CompileToWasmError> {
+        let dir =
+            tempfile::tempdir().map_err(|e| CompileToWasmError::Io(format!("tempdir: {e}")))?;
+        let src_path = dir.path().join("candidate.rs");
+        let full_source = format!("{}\n{}", source.trim(), adapter_for(source));
+        std::fs::write(&src_path, full_source)
+            .map_err(|e| CompileToWasmError::Io(format!("écriture source: {e}")))?;
+
+        let output_path = dir.path().join("candidate.wasm");
+        let child = Command::new("rustc")
+            .arg("--target")
+            .arg(WASM_TARGET)
+            .arg("--crate-type=cdylib")
+            .arg("-C")
+            .arg("opt-level=0")
+            .arg("-o")
+            .arg(&output_path)
+            .arg(&src_path)
+            .stderr(Stdio::piped())
+            .spawn();
+
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(CompileToWasmError::RustcUnavailable);
+            }
+            Err(e) => return Err(CompileToWasmError::Io(format!("lancement rustc: {e}"))),
         };
-        Ok(WasmResult {
-            success: false,
-            output: String::new(),
-            error: Some(reason.into()),
-            fuel_consumed: 0,
-            duration_ms: 0,
-        })
+
+        // Attente bornée pour ne jamais bloquer le moteur sur un rustc récalcitrant.
+        let deadline = Instant::now() + Duration::from_secs(RUSTC_TIMEOUT_SECS);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(st)) => break Some(st),
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(CompileToWasmError::Compilation(format!(
+                        "rustc a dépassé le délai de {RUSTC_TIMEOUT_SECS}s"
+                    )));
+                }
+                Err(e) => return Err(CompileToWasmError::Io(format!("attente rustc: {e}"))),
+            }
+        };
+        let Some(status) = status else {
+            return Err(CompileToWasmError::Io("statut rustc inconnu".into()));
+        };
+
+        if !status.success() {
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                use std::io::Read;
+                let _ = pipe.read_to_string(&mut stderr);
+            }
+            if stderr.contains("E0463")
+                || stderr.to_lowercase().contains("target")
+                    && stderr.to_lowercase().contains("not installed")
+            {
+                return Err(CompileToWasmError::WasmTargetMissing);
+            }
+            let preview: String = stderr.chars().take(500).collect();
+            return Err(CompileToWasmError::Compilation(
+                if preview.trim().is_empty() {
+                    format!("rustc a échoué ({})", status)
+                } else {
+                    format!("Compilation échouée: {}", preview.trim_end())
+                },
+            ));
+        }
+
+        let bytes = std::fs::read(&output_path)
+            .map_err(|e| CompileToWasmError::Io(format!("lecture WASM: {e}")))?;
+        if !Self::validate_wasm(&bytes) {
+            return Err(CompileToWasmError::Io(
+                "sortie rustc sans en-tête WASM valide".into(),
+            ));
+        }
+        Ok(bytes)
     }
 
     pub fn validate_wasm(bytes: &[u8]) -> bool {
@@ -241,15 +412,89 @@ mod tests {
         assert!(result.error.unwrap().contains("no function"));
     }
 
-    #[test]
-    fn test_execute_rust_source_with_main_is_still_not_execution() {
+    /// Indique si la chaîne d'outils wasm32 est disponible dans cet environnement.
+    fn wasm_toolchain_available() -> bool {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        let result = executor
-            .execute_rust_source("fn main() { println!(\"hello\"); }")
-            .unwrap();
+        executor
+            .compile_source_to_wasm("fn probe_presence() {}")
+            .is_ok()
+    }
+
+    #[test]
+    fn test_execute_rust_source_compiles_and_runs_run_convention() {
+        let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
+        let source = r#"
+pub fn compute() -> u64 { 6 * 7 }
+
+pub fn run() {
+    // Computation réelle exécutée dans le sandbox ; le résultat n'est pas
+    // observable hors du module mais l'exécution consomme du fuel.
+    let _ = compute();
+}
+"#;
+        let result = executor.execute_rust_source(source).unwrap();
+        if wasm_toolchain_available() {
+            assert!(
+                result.success,
+                "exécution réelle attendue: {:?}",
+                result.error
+            );
+            assert!(result.fuel_consumed > 0, "du fuel doit être consommé");
+            assert!(result.duration_ms <= executor.config.timeout.as_millis() as u64 + 5_000);
+        } else {
+            assert!(!result.success);
+            let err = result.error.unwrap_or_default();
+            assert!(
+                err.contains("wasm32") || err.contains("rustc"),
+                "message d'indication attendu, obtenu: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_execute_rust_source_rejects_type_error() {
+        let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
+        let source = r#"
+pub fn run() {
+    let x: i32 = "pas un nombre";
+    let _ = x;
+}
+"#;
+        let result = executor.execute_rust_source(source).unwrap();
         assert!(!result.success);
-        assert_eq!(result.fuel_consumed, 0);
-        assert!(result.error.unwrap().contains("was not executed"));
+        match result.error {
+            Some(err) if err.contains("Compilation échouée") => {}
+            Some(err) if err.contains("wasm32") || err.contains("rustc") => {}
+            other => panic!("erreur de compilation attendue, obtenu: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_compile_source_to_wasm_produces_valid_module() {
+        let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
+        let bytes = executor.compile_source_to_wasm("pub fn helper() -> u8 { 1 }");
+        match bytes {
+            Ok(wasm) => {
+                assert!(WasmExecutor::validate_wasm(&wasm));
+                // L'adaptateur a bien généré un export main : exécution réussie.
+                let result = executor.execute(&wasm).unwrap();
+                assert!(result.success, "{:?}", result.error);
+            }
+            Err(CompileToWasmError::RustcUnavailable)
+            | Err(CompileToWasmError::WasmTargetMissing) => {}
+            Err(other) => panic!("échec inattendu: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_adapter_selection() {
+        // main déjà exporté → pas d'adaptateur.
+        let exported = "#[no_mangle]\npub extern \"C\" fn main() {}";
+        assert_eq!(adapter_for(exported), "");
+        // Convention run() → adaptateur appelant run.
+        assert!(adapter_for("pub fn run() {}").contains("run();"));
+        // Sinon → adaptateur vide.
+        assert!(adapter_for("pub fn foo() {}").contains("main() {}"));
     }
 
     #[test]

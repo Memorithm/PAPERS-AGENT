@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use papers_core::cli::{parse, Commands};
 use papers_core::cognition::CognitionStore;
 use papers_core::config::PapersConfig;
@@ -47,17 +47,22 @@ fn main() -> Result<()> {
 
             println!("📄 Source: {}", source);
             println!("🤖 LLM: {}", if use_llm { &model } else { "désactivé" });
-            println!("🧬 Évolution: {}", if evolve { "activée" } else { "désactivée" });
+            println!(
+                "🧬 Évolution: {}",
+                if evolve { "activée" } else { "désactivée" }
+            );
             println!("📁 Sortie: {}", output);
             println!();
 
             let output_dir = Path::new(&output);
-            fs::create_dir_all(output_dir)
-                .context("Failed to create output directory")?;
+            fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
             let evo_config = if evolve {
                 Some(EvolutionConfig {
-                    task_description: format!("Implémente en Rust les concepts extraits de: {}", source),
+                    task_description: format!(
+                        "Implémente en Rust les concepts extraits de: {}",
+                        source
+                    ),
                     max_rounds: rounds,
                     sampling_policy: policy,
                     n_candidates_per_round: candidates,
@@ -67,11 +72,16 @@ fn main() -> Result<()> {
                 None
             };
 
-            let result = engine.run_pipeline(&source, evolve, evo_config)
+            let result = engine
+                .run_pipeline(&source, evolve, evo_config)
                 .map_err(|e| anyhow::anyhow!(e))?;
 
-            println!("✅ Extraction: {} ({})", result.document.title, result.document.source);
-            println!("✅ Analyse: score intégration = {:.2}, recommandation = {}",
+            println!(
+                "✅ Extraction: {} ({})",
+                result.document.title, result.document.source
+            );
+            println!(
+                "✅ Analyse: score intégration = {:.2}, recommandation = {}",
                 result.analysis.integration_score,
                 result.analysis.recommendation.label(),
             );
@@ -83,28 +93,22 @@ fn main() -> Result<()> {
             let doc_path = output_dir.join("extracted_document.json");
             let doc_json = serde_json::to_string_pretty(&result.document)
                 .context("Failed to serialize document")?;
-            fs::write(&doc_path, doc_json)
-                .context("Failed to save document")?;
+            fs::write(&doc_path, doc_json).context("Failed to save document")?;
 
             if let Some(ref evo_result) = result.evolution {
-                println!("🧬 Évolution: best={:.4}, {} candidats, {:.1}s",
-                    evo_result.best_score,
-                    evo_result.total_candidates,
-                    evo_result.total_time_secs,
+                println!(
+                    "🧬 Évolution: best={:.4}, {} candidats, {:.1}s",
+                    evo_result.best_score, evo_result.total_candidates, evo_result.total_time_secs,
                 );
 
                 let evo_path = output_dir.join("evolution_report.md");
-                let evo_md = ReportGenerator::render_evolution_result(
-                    evo_result,
-                    &result.document.title,
-                );
-                fs::write(&evo_path, evo_md)
-                    .context("Failed to save evolution report")?;
+                let evo_md =
+                    ReportGenerator::render_evolution_result(evo_result, &result.document.title);
+                fs::write(&evo_path, evo_md).context("Failed to save evolution report")?;
 
                 if let Some(ref node) = evo_result.best_node {
                     let code_path = output_dir.join("best_program.rs");
-                    fs::write(&code_path, &node.code)
-                        .context("Failed to save best program")?;
+                    fs::write(&code_path, &node.code).context("Failed to save best program")?;
                     println!("📝 Meilleur code: {}", code_path.display());
                 }
             }
@@ -126,14 +130,12 @@ fn main() -> Result<()> {
             println!("📄 Extraction: {}", source);
             let pipeline = ExtractionPipeline::new();
 
-            let doc = pipeline.extract(&source)
-                .map_err(|e| anyhow::anyhow!(e))?;
-            let json = serde_json::to_string_pretty(&doc)
-                .context("Failed to serialize document")?;
+            let doc = pipeline.extract(&source).map_err(|e| anyhow::anyhow!(e))?;
+            let json =
+                serde_json::to_string_pretty(&doc).context("Failed to serialize document")?;
 
             if let Some(ref path) = output {
-                fs::write(path, &json)
-                    .context("Failed to write document")?;
+                fs::write(path, &json).context("Failed to write document")?;
                 println!("✅ Document sauvegardé: {}", path);
             } else {
                 println!("{}", json);
@@ -141,30 +143,34 @@ fn main() -> Result<()> {
         }
 
         // ── Analyse seule ────────────────────────────────────
-        Commands::Analyze { source, no_llm, model, output } => {
+        Commands::Analyze {
+            source,
+            no_llm,
+            model,
+            output,
+        } => {
             println!("🔬 Analyse: {}", source);
 
             let use_llm = !no_llm;
-            let llm_config = LlmConfig { model: model.clone(), ..config.to_llm_config() };
+            let llm_config = LlmConfig {
+                model: model.clone(),
+                ..config.to_llm_config()
+            };
             let mut engine = PapersEngine::new(use_llm, Some(llm_config));
 
-            let doc = engine.extract(&source)
-                .map_err(|e| anyhow::anyhow!(e))?;
+            let doc = engine.extract(&source).map_err(|e| anyhow::anyhow!(e))?;
             let analysis = engine.analyze(&doc);
 
             let output_dir = Path::new(&output);
-            fs::create_dir_all(output_dir)
-                .context("Failed to create output directory")?;
+            fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
             let report_path = output_dir.join("analysis_report.md");
-            ReportGenerator::save(&analysis, &report_path)
-                .context("Failed to save report")?;
+            ReportGenerator::save(&analysis, &report_path).context("Failed to save report")?;
 
             let json_path = output_dir.join("analysis.json");
-            let json = serde_json::to_string_pretty(&analysis)
-                .context("Failed to serialize analysis")?;
-            fs::write(&json_path, json)
-                .context("Failed to save JSON")?;
+            let json =
+                serde_json::to_string_pretty(&analysis).context("Failed to serialize analysis")?;
+            fs::write(&json_path, json).context("Failed to save JSON")?;
 
             println!("✅ Recommandation: {}", analysis.recommendation.label());
             println!("✅ Score intégration: {:.2}", analysis.integration_score);
@@ -172,12 +178,23 @@ fn main() -> Result<()> {
         }
 
         // ── Évolution seule ──────────────────────────────────
-        Commands::Evolve { task, source, rounds, policy, candidates, model, output } => {
+        Commands::Evolve {
+            task,
+            source,
+            rounds,
+            policy,
+            candidates,
+            model,
+            output,
+        } => {
             println!("🧬 PAPER EVOLVE");
             println!("Tâche: {}", task);
             println!("Modèle: {}", model);
 
-            let llm_config = LlmConfig { model: model.clone(), ..config.to_llm_config() };
+            let llm_config = LlmConfig {
+                model: model.clone(),
+                ..config.to_llm_config()
+            };
             let mut engine = PapersEngine::new(true, Some(llm_config));
 
             let evo_config = EvolutionConfig {
@@ -192,7 +209,10 @@ fn main() -> Result<()> {
                 match engine.extract(src) {
                     Ok(d) => d,
                     Err(e) => {
-                        return Err(anyhow::anyhow!("Extraction failed: {}. Cannot evolve without source document.", e));
+                        return Err(anyhow::anyhow!(
+                            "Extraction failed: {}. Cannot evolve without source document.",
+                            e
+                        ));
                     }
                 }
             } else {
@@ -212,7 +232,8 @@ fn main() -> Result<()> {
                 }
             };
 
-            let result = engine.evolve(&doc, evo_config)
+            let result = engine
+                .evolve(&doc, evo_config)
                 .map_err(|e| anyhow::anyhow!(e))?;
 
             println!();
@@ -223,21 +244,21 @@ fn main() -> Result<()> {
             println!("  Rounds: {}", result.total_rounds);
             println!("  Candidats: {}", result.total_candidates);
             println!("  Durée: {:.1}s", result.total_time_secs);
-            println!("  Arrêt précoce: {}", if result.stopped_early { "oui" } else { "non" });
+            println!(
+                "  Arrêt précoce: {}",
+                if result.stopped_early { "oui" } else { "non" }
+            );
 
             let output_dir = Path::new(&output);
-            fs::create_dir_all(output_dir)
-                .context("Failed to create output directory")?;
+            fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
             let report_md = ReportGenerator::render_evolution_result(&result, &doc.title);
             let report_path = output_dir.join("evolution_report.md");
-            fs::write(&report_path, &report_md)
-                .context("Failed to save evolution report")?;
+            fs::write(&report_path, &report_md).context("Failed to save evolution report")?;
 
             if let Some(ref node) = result.best_node {
                 let code_path = output_dir.join("best_program.rs");
-                fs::write(&code_path, &node.code)
-                    .context("Failed to save best program")?;
+                fs::write(&code_path, &node.code).context("Failed to save best program")?;
                 println!("  Code: {}", code_path.display());
             }
 
@@ -247,15 +268,19 @@ fn main() -> Result<()> {
         // ── Recherche sémantique ─────────────────────────────
         Commands::Search { query, top_k } => {
             let db_path = Path::new("./doc_store.json");
-            let corpus = &["papers research AI machine learning"];
+            // Sans base existante : indexe le corpus seed plutôt qu'un
+            // corpus factice d'une entrée, pour des résultats exploitables.
             let mut store = if db_path.exists() {
-                DocStore::with_persistence(corpus, db_path)
-                    .unwrap_or_else(|e| {
+                match DocStore::with_persistence(papers_core::engine::SEED_CORPUS, db_path) {
+                    Ok(s) => s,
+                    Err(e) => {
                         eprintln!("⚠️  Impossible de charger la base: {}", e);
-                        DocStore::new(corpus)
-                    })
+                        DocStore::with_corpus_documents(papers_core::engine::SEED_CORPUS)
+                    }
+                }
             } else {
-                DocStore::new(corpus)
+                println!("ℹ️  Aucune base (./doc_store.json) : recherche sur le corpus seed.");
+                DocStore::with_corpus_documents(papers_core::engine::SEED_CORPUS)
             };
 
             println!("🔍 Recherche: \"{}\"", query);
@@ -265,23 +290,25 @@ fn main() -> Result<()> {
                 println!("Aucun résultat.");
             } else {
                 for (i, r) in results.iter().enumerate() {
-                    println!("{}. [{}] {} (sim: {:.3})",
-                        i + 1, r.id, r.text.chars().take(80).collect::<String>(),
-                        r.similarity);
+                    println!(
+                        "{}. [{}] {} (sim: {:.3})",
+                        i + 1,
+                        r.id,
+                        r.text.chars().take(80).collect::<String>(),
+                        r.similarity
+                    );
                 }
             }
         }
 
         // ── Génération de rapport ────────────────────────────
         Commands::Report { input, output } => {
-            let json = fs::read_to_string(&input)
-                .context(format!("Cannot read {}", input))?;
-            let report: papers_core::engine::AnalysisReport = serde_json::from_str(&json)
-                .context("Invalid JSON")?;
+            let json = fs::read_to_string(&input).context(format!("Cannot read {}", input))?;
+            let report: papers_core::engine::AnalysisReport =
+                serde_json::from_str(&json).context("Invalid JSON")?;
             let md = ReportGenerator::render(&report);
             if let Some(ref path) = output {
-                fs::write(path, &md)
-                    .context("Failed to write report")?;
+                fs::write(path, &md).context("Failed to write report")?;
                 println!("✅ Rapport: {}", path);
             } else {
                 println!("{}", md);
@@ -295,15 +322,17 @@ fn main() -> Result<()> {
 
             let db_path = Path::new(&db);
             if db_path.exists() {
-                let content = fs::read_to_string(db_path)
-                    .context("Failed to read database")?;
+                let content = fs::read_to_string(db_path).context("Failed to read database")?;
                 let nodes: Vec<papers_core::models::Node> =
-                    serde_json::from_str(&content)
-                        .context("Failed to parse database")?;
+                    serde_json::from_str(&content).context("Failed to parse database")?;
                 println!("  Nœuds: {}", nodes.len());
                 if !nodes.is_empty() {
-                    let avg_score: f64 = nodes.iter().map(|n| n.score).sum::<f64>() / nodes.len() as f64;
-                    let max_score = nodes.iter().map(|n| n.score).fold(f64::NEG_INFINITY, f64::max);
+                    let avg_score: f64 =
+                        nodes.iter().map(|n| n.score).sum::<f64>() / nodes.len() as f64;
+                    let max_score = nodes
+                        .iter()
+                        .map(|n| n.score)
+                        .fold(f64::NEG_INFINITY, f64::max);
                     println!("  Score moyen: {:.4}", avg_score);
                     println!("  Meilleur score: {:.4}", max_score);
                 }
@@ -317,8 +346,7 @@ fn main() -> Result<()> {
             println!("🌱 Peuplement cognition: {}", file);
             let mut store = CognitionStore::new();
 
-            let content = fs::read_to_string(&file)
-                .context(format!("Cannot read {}", file))?;
+            let content = fs::read_to_string(&file).context(format!("Cannot read {}", file))?;
 
             if let Ok(items) = serde_json::from_str::<Vec<CognitionItem>>(&content) {
                 store.add_batch(items);
@@ -337,10 +365,14 @@ fn main() -> Result<()> {
 
             let seed_path = Path::new(&file).with_extension("seeded.json");
             let seed_json = serde_json::to_string_pretty(
-                &store.retrieve_all().iter().map(|i| (*i).clone()).collect::<Vec<_>>()
-            ).context("Failed to serialize")?;
-            fs::write(&seed_path, seed_json)
-                .context("Failed to save seeded data")?;
+                &store
+                    .retrieve_all()
+                    .iter()
+                    .map(|i| (*i).clone())
+                    .collect::<Vec<_>>(),
+            )
+            .context("Failed to serialize")?;
+            fs::write(&seed_path, seed_json).context("Failed to save seeded data")?;
 
             println!("✅ {} items ajoutés → {}", store.len(), seed_path.display());
         }
@@ -352,10 +384,9 @@ fn main() -> Result<()> {
 
         // ── Export PDF ───────────────────────────────────────
         Commands::Pdf { input, output } => {
-            let json = fs::read_to_string(&input)
-                .context(format!("Cannot read {}", input))?;
-            let report: papers_core::engine::AnalysisReport = serde_json::from_str(&json)
-                .context("Invalid JSON")?;
+            let json = fs::read_to_string(&input).context(format!("Cannot read {}", input))?;
+            let report: papers_core::engine::AnalysisReport =
+                serde_json::from_str(&json).context("Invalid JSON")?;
             let md = ReportGenerator::render(&report);
 
             let output_path = output.map(PathBuf::from).unwrap_or_else(|| {
@@ -365,10 +396,125 @@ fn main() -> Result<()> {
             });
 
             let pdf_bytes = generate_pdf(&report, &md)?;
-            fs::write(&output_path, pdf_bytes)
-                .context("Failed to write PDF")?;
+            fs::write(&output_path, pdf_bytes).context("Failed to write PDF")?;
             println!("✅ PDF: {}", output_path.display());
         }
+
+        // ── Serveur de métriques ─────────────────────────────
+        Commands::ServeMetrics { port } => {
+            let addr = format!("127.0.0.1:{port}");
+            let _server = papers_core::metrics_server::serve_metrics(&addr)
+                .context("Impossible de lier le port métriques")?;
+            println!("📊 Métriques Prometheus: http://{addr}/metrics (Ctrl-C pour arrêter)");
+            // Le thread serveur vit avec le process ; on bloque ici.
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        }
+
+        // ── Surveillance arXiv ───────────────────────────────
+        Commands::Watch {
+            topics,
+            interval_secs,
+            results_per_topic,
+            max_rounds,
+            registry,
+        } => {
+            run_watch(
+                topics,
+                interval_secs,
+                results_per_topic,
+                max_rounds,
+                registry,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Boucle de surveillance arXiv : pour chaque topic, récupère les derniers
+/// papiers et enregistre les nouveaux (dédupliqués par ID) dans le registre.
+fn run_watch(
+    topics: Vec<String>,
+    interval_secs: u64,
+    results_per_topic: usize,
+    max_rounds: usize,
+    registry_path: String,
+) -> Result<()> {
+    use papers_core::extraction::search_arxiv_latest;
+    use papers_core::paper_registry::{PaperEntry, PaperRegistry};
+
+    println!(
+        "👁️  PAPERS Watch — {} topic(s), intervalle {}s",
+        topics.len(),
+        interval_secs
+    );
+
+    let mut registry = PaperRegistry::new(&registry_path);
+    let mut round = 0usize;
+
+    loop {
+        round += 1;
+        println!(
+            "\n── Tour #{} ({}) ──",
+            round,
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
+
+        let mut new_count = 0usize;
+        for topic in &topics {
+            let docs = match search_arxiv_latest(topic, results_per_topic) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("⚠️  '{}' : {}", topic, e);
+                    continue;
+                }
+            };
+            for doc in docs {
+                if registry.get(&doc.id).is_some() {
+                    continue; // déjà connu
+                }
+                registry.add(PaperEntry {
+                    id: doc.id.clone(),
+                    title: doc.title.clone(),
+                    authors: doc.authors.clone(),
+                    year: doc
+                        .publication_date
+                        .as_deref()
+                        .and_then(|d| d.get(0..4).and_then(|y| y.parse::<i32>().ok())),
+                    domain: None,
+                    tags: vec![topic.clone()],
+                    abstract_text: doc.abstract_text.clone(),
+                    key_insight: None,
+                    url: doc.paper_url.clone(),
+                    source: Some("arxiv-watch".into()),
+                    relevance_score: None,
+                    github_url: doc.github_url.clone(),
+                });
+                println!("🆕 [{}] {} — {}", topic, doc.title, doc.id);
+                papers_core::metrics_server::record_watch_paper();
+                new_count += 1;
+            }
+        }
+
+        if new_count == 0 {
+            println!("Aucun nouveau papier ce tour.");
+        } else {
+            registry
+                .save()
+                .map_err(|e| anyhow::anyhow!("Sauvegarde registre: {e}"))?;
+            println!(
+                "💾 Registre mis à jour : {} papier(s) au total.",
+                registry.len()
+            );
+        }
+
+        if max_rounds > 0 && round >= max_rounds {
+            println!("\n✅ {max_rounds} tour(s) effectué(s). Fin de la surveillance.");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(interval_secs.max(1)));
     }
 
     Ok(())
@@ -399,13 +545,20 @@ fn run_interactive(config: &PapersConfig, model: &str) -> Result<()> {
         stdout.flush()?;
 
         let mut line = String::new();
-        if stdin.lock().read_line(&mut line)? == 0 { break; }
+        if stdin.lock().read_line(&mut line)? == 0 {
+            break;
+        }
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         let parts: Vec<&str> = line.split_whitespace().collect();
         match parts[0] {
-            "exit" | "quit" => { println!("Au revoir."); break; }
+            "exit" | "quit" => {
+                println!("Au revoir.");
+                break;
+            }
             "help" => {
                 println!("Commandes:");
                 println!("  extract <source>  - Extraire un papier");
@@ -418,7 +571,10 @@ fn run_interactive(config: &PapersConfig, model: &str) -> Result<()> {
             }
             "extract" => {
                 let source = parts[1..].join(" ");
-                if source.is_empty() { eprintln!("Usage: extract <source>"); continue; }
+                if source.is_empty() {
+                    eprintln!("Usage: extract <source>");
+                    continue;
+                }
                 match engine.extract(&source).map_err(|e| anyhow::anyhow!(e)) {
                     Ok(doc) => println!("✅ {} (auteurs: {})", doc.title, doc.authors.join(", ")),
                     Err(e) => eprintln!("❌ {}", e),
@@ -426,22 +582,41 @@ fn run_interactive(config: &PapersConfig, model: &str) -> Result<()> {
             }
             "analyze" => {
                 let source = parts[1..].join(" ");
-                if source.is_empty() { eprintln!("Usage: analyze <source>"); continue; }
+                if source.is_empty() {
+                    eprintln!("Usage: analyze <source>");
+                    continue;
+                }
                 match engine.extract(&source) {
                     Ok(doc) => {
                         let a = engine.analyze(&doc);
-                        println!("📊 Intégration: {:.2} | Recommandation: {}",
-                            a.integration_score, a.recommendation.label());
+                        println!(
+                            "📊 Intégration: {:.2} | Recommandation: {}",
+                            a.integration_score,
+                            a.recommendation.label()
+                        );
                     }
                     Err(e) => eprintln!("❌ {}", e),
                 }
             }
             "search" => {
                 let query = parts[1..].join(" ");
-                if query.is_empty() { eprintln!("Usage: search <query>"); continue; }
+                if query.is_empty() {
+                    eprintln!("Usage: search <query>");
+                    continue;
+                }
                 let results = engine.find_similar(&query, 5);
-                if results.is_empty() { println!("Aucun résultat."); }
-                else { for r in &results { println!("  [{}] {} (sim: {:.3})", r.id, r.text.chars().take(80).collect::<String>(), r.similarity); } }
+                if results.is_empty() {
+                    println!("Aucun résultat.");
+                } else {
+                    for r in &results {
+                        println!(
+                            "  [{}] {} (sim: {:.3})",
+                            r.id,
+                            r.text.chars().take(80).collect::<String>(),
+                            r.similarity
+                        );
+                    }
+                }
             }
             "status" => {
                 println!("📊 PAPERS V2");
@@ -451,7 +626,10 @@ fn run_interactive(config: &PapersConfig, model: &str) -> Result<()> {
             }
             "config" => {
                 println!("📋 LLM: {} @ {}", config.llm.model, config.llm.base_url);
-                println!("   Évolution: {} rounds, {}", config.evolution.max_rounds, config.evolution.sampling_policy);
+                println!(
+                    "   Évolution: {} rounds, {}",
+                    config.evolution.max_rounds, config.evolution.sampling_policy
+                );
                 println!("   Embedding: {} dim", config.embedding.dim);
             }
             other => eprintln!("Commande inconnue: '{}'. Tapez 'help'.", other),
@@ -465,7 +643,9 @@ fn generate_pdf(report: &papers_core::engine::AnalysisReport, _md: &str) -> Resu
     use papers_core::pdf::PdfDocument;
     let doc = &report.document;
 
-    let algorithms: Vec<(&str, Option<&str>)> = report.algorithms.iter()
+    let algorithms: Vec<(&str, Option<&str>)> = report
+        .algorithms
+        .iter()
         .map(|a| (a.name.as_str(), a.complexity.as_deref()))
         .collect();
 

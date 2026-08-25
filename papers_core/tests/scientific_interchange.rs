@@ -53,6 +53,7 @@ fn report() -> AnalysisReport {
         deep_analysis: serde_json::json!({}),
         experiment_plan: serde_json::json!({}),
         pseudo_code: serde_json::json!({}),
+        llm_warnings: Vec::new(),
     }
 }
 

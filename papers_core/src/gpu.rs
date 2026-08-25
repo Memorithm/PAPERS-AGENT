@@ -3,6 +3,86 @@
 
 use std::process::Command;
 
+/// Poids de scoring pour une tâche GPU donnée.
+///
+/// Tous les champs sont configurables via `config.toml`
+/// (`[gpu.score_weights.inference]`, etc.) ; les défauts reproduisent
+/// exactement les heuristiques historiques codées en dur.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskWeights {
+    #[serde(default)]
+    /// Facteur appliqué à la mémoire totale (Mo) du device.
+    pub memory_factor: f64,
+    #[serde(default)]
+    /// Bonus compute capability ≥ 8.0 (Ampere+).
+    pub compute_high: f64,
+    #[serde(default)]
+    /// Bonus compute capability 7.x (Volta/Turing).
+    pub compute_mid: f64,
+    #[serde(default)]
+    /// Bonus compute capability 6.x (Pascal).
+    pub compute_low: f64,
+    #[serde(default)]
+    /// Bonus par défaut (CC inconnu ou plus ancien).
+    pub compute_other: f64,
+    #[serde(default)]
+    /// Bonus fournisseur NVIDIA (support CUDA).
+    pub vendor_bonus: f64,
+}
+
+/// Poids de scoring GPU globaux.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GpuScoreWeights {
+    #[serde(default)]
+    pub inference: TaskWeights,
+    #[serde(default)]
+    pub training: TaskWeights,
+    #[serde(default)]
+    pub embedding: TaskWeights,
+    #[serde(default)]
+    /// Facteur mémoire de la tâche General.
+    pub general_memory_factor: f64,
+    #[serde(default)]
+    /// Bonus fixe de la tâche General.
+    pub general_base_bonus: f64,
+    #[serde(default)]
+    /// Amplification liée au ratio mémoire disponible/total.
+    pub memory_ratio_boost: f64,
+}
+
+impl TaskWeights {
+    fn new(memory_factor: f64, high: f64, mid: f64, low: f64, other: f64, vendor: f64) -> Self {
+        Self {
+            memory_factor,
+            compute_high: high,
+            compute_mid: mid,
+            compute_low: low,
+            compute_other: other,
+            vendor_bonus: vendor,
+        }
+    }
+}
+
+impl Default for TaskWeights {
+    fn default() -> Self {
+        // Valeurs neutres (aucun bonus) : chaque tâche surcharge ses poids.
+        Self::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    }
+}
+
+impl Default for GpuScoreWeights {
+    fn default() -> Self {
+        Self {
+            inference: TaskWeights::new(0.001, 10.0, 8.0, 6.0, 4.0, 5.0),
+            training: TaskWeights::new(0.002, 15.0, 12.0, 10.0, 6.0, 10.0),
+            embedding: TaskWeights::new(0.0015, 8.0, 7.0, 6.0, 4.0, 3.0),
+            general_memory_factor: 0.0005,
+            general_base_bonus: 5.0,
+            memory_ratio_boost: 0.2,
+        }
+    }
+}
+
 /// GPU device information and capabilities.
 #[derive(Debug, Clone)]
 pub struct GpuDevice {
@@ -24,6 +104,7 @@ pub struct GpuDetector {
     cuda_available: bool,
     cuda_path: Option<String>,
     driver_version: Option<String>,
+    weights: GpuScoreWeights,
 }
 
 impl GpuDetector {
@@ -34,6 +115,7 @@ impl GpuDetector {
             cuda_available: false,
             cuda_path: None,
             driver_version: None,
+            weights: GpuScoreWeights::default(),
         };
 
         // Check if CUDA is available
@@ -64,9 +146,8 @@ impl GpuDetector {
                 // Try to find nvcc path
                 if let Ok(path) = Command::new("which").arg("nvcc").output() {
                     if path.status.success() {
-                        self.cuda_path = Some(
-                            String::from_utf8_lossy(&path.stdout).trim().to_string()
-                        );
+                        self.cuda_path =
+                            Some(String::from_utf8_lossy(&path.stdout).trim().to_string());
                     }
                 }
                 return true;
@@ -152,7 +233,8 @@ impl GpuDetector {
             cuda_version: String::new(),
             driver_version: String::new(),
             is_nvidia: gpu_name.to_lowercase().contains("nvidia"),
-            is_amd: gpu_name.to_lowercase().contains("amd") || gpu_name.to_lowercase().contains("radeon"),
+            is_amd: gpu_name.to_lowercase().contains("amd")
+                || gpu_name.to_lowercase().contains("radeon"),
             is_intel: gpu_name.to_lowercase().contains("intel"),
         };
 
@@ -190,9 +272,7 @@ impl GpuDetector {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.is_dir() {
-                let _device_name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let _device_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 // Check for NVIDIA vendor ID (0x10de)
                 let vendor_file = path.join("vendor");
@@ -379,62 +459,49 @@ impl GpuDetector {
         best_device
     }
 
-    /// Calculate GPU score for a specific task.
+    /// Calcule le score d'un device pour une tâche, à partir des poids
+    /// configurables ([`GpuScoreWeights`]).
     fn calculate_gpu_score(&self, device: &GpuDevice, task: GpuTask) -> f64 {
-        let mut score = 0.0;
+        let (w, task_weights): (f64, Option<&TaskWeights>) = match task {
+            GpuTask::Inference => (0.0, Some(&self.weights.inference)),
+            GpuTask::Training => (0.0, Some(&self.weights.training)),
+            GpuTask::Embedding => (0.0, Some(&self.weights.embedding)),
+            GpuTask::General => (self.weights.general_base_bonus, None),
+        };
 
-        match task {
-            GpuTask::Inference => {
-                // High memory and compute capability
-                score += device.memory_total as f64 * 0.001;
-                score += match device.compute_capability.as_str() {
-                    "8.0" | "8.6" | "8.9" => 10.0,
-                    "7.5" | "7.0" => 8.0,
-                    "6.0" | "6.1" => 6.0,
-                    _ => 4.0,
-                };
-                if device.is_nvidia {
-                    score += 5.0; // NVIDIA has better CUDA support
-                }
+        let mut score = w;
+
+        if let Some(tw) = task_weights {
+            score += device.memory_total as f64 * tw.memory_factor;
+            score += match device.compute_capability.as_str() {
+                "8.0" | "8.6" | "8.9" => tw.compute_high,
+                "7.5" | "7.0" => tw.compute_mid,
+                "6.0" | "6.1" => tw.compute_low,
+                _ => tw.compute_other,
+            };
+            if device.is_nvidia {
+                score += tw.vendor_bonus;
             }
-            GpuTask::Training => {
-                // Very high memory and compute capability
-                score += device.memory_total as f64 * 0.002;
-                score += match device.compute_capability.as_str() {
-                    "8.0" | "8.6" | "8.9" => 15.0,
-                    "7.5" | "7.0" => 12.0,
-                    "6.0" | "6.1" => 10.0,
-                    _ => 6.0,
-                };
-                if device.is_nvidia {
-                    score += 10.0;
-                }
-            }
-            GpuTask::Embedding => {
-                // Good balance of memory and compute
-                score += device.memory_total as f64 * 0.0015;
-                score += match device.compute_capability.as_str() {
-                    "8.0" | "8.6" | "8.9" => 8.0,
-                    "7.5" | "7.0" => 7.0,
-                    "6.0" | "6.1" => 6.0,
-                    _ => 4.0,
-                };
-                if device.is_nvidia {
-                    score += 3.0;
-                }
-            }
-            GpuTask::General => {
-                // General purpose scoring
-                score += device.memory_total as f64 * 0.0005;
-                score += 5.0;
-            }
+        } else {
+            // General : score mémoire + bonus fixe.
+            score += device.memory_total as f64 * self.weights.general_memory_factor;
         }
 
         // Adjust for memory availability
         let memory_ratio = device.memory_available as f64 / device.memory_total.max(1) as f64;
-        score *= 1.0 + memory_ratio * 0.2;
+        score *= 1.0 + memory_ratio * self.weights.memory_ratio_boost;
 
         score
+    }
+
+    /// Remplace les poids de scoring (depuis la configuration TOML par ex.).
+    pub fn set_weights(&mut self, weights: GpuScoreWeights) {
+        self.weights = weights;
+    }
+
+    /// Poids de scoring actuellement utilisés.
+    pub fn weights(&self) -> &GpuScoreWeights {
+        &self.weights
     }
 
     /// Check if CUDA is available.
@@ -502,6 +569,7 @@ impl GpuDetector {
             cuda_available: false,
             cuda_path: None,
             driver_version: None,
+            weights: GpuScoreWeights::default(),
         };
 
         // Try to detect NVIDIA CUDA devices
@@ -523,6 +591,7 @@ mod tests {
             cuda_available: false,
             cuda_path: None,
             driver_version: None,
+            weights: GpuScoreWeights::default(),
         }
     }
 
@@ -568,7 +637,12 @@ mod tests {
 
     #[test]
     fn test_gpu_task_enum_values() {
-        let tasks = [GpuTask::Inference, GpuTask::Training, GpuTask::Embedding, GpuTask::General];
+        let tasks = [
+            GpuTask::Inference,
+            GpuTask::Training,
+            GpuTask::Embedding,
+            GpuTask::General,
+        ];
         assert_eq!(tasks.len(), 4);
         assert_eq!(GpuTask::Inference, GpuTask::Inference);
         assert_ne!(GpuTask::Inference, GpuTask::Training);
