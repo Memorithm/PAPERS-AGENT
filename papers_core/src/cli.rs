@@ -24,7 +24,7 @@ pub enum Commands {
         no_llm: bool,
 
         /// Modèle LLM à utiliser
-        #[arg(long, default_value = "gemma4:e2b")]
+        #[arg(long, default_value = crate::config::DEFAULT_LLM_MODEL)]
         model: String,
 
         /// Répertoire de sortie
@@ -66,7 +66,7 @@ pub enum Commands {
         no_llm: bool,
 
         /// Modèle LLM
-        #[arg(long, default_value = "gemma4:e2b")]
+        #[arg(long, default_value = crate::config::DEFAULT_LLM_MODEL)]
         model: String,
 
         /// Répertoire de sortie
@@ -97,7 +97,7 @@ pub enum Commands {
         candidates: usize,
 
         /// Modèle LLM
-        #[arg(long, default_value = "gemma4:e2b")]
+        #[arg(long, default_value = crate::config::DEFAULT_LLM_MODEL)]
         model: String,
 
         /// Répertoire de sortie
@@ -144,7 +144,7 @@ pub enum Commands {
     /// Mode interactif (REPL)
     Interactive {
         /// Modèle LLM
-        #[arg(long, default_value = "gemma4:e2b")]
+        #[arg(long, default_value = crate::config::DEFAULT_LLM_MODEL)]
         model: String,
     },
 
@@ -157,6 +157,36 @@ pub enum Commands {
         /// Fichier PDF de sortie
         #[arg(short, long)]
         output: Option<String>,
+    },
+
+    /// Exposer les métriques Prometheus sur /metrics
+    ServeMetrics {
+        /// Port d'écoute du serveur HTTP
+        #[arg(long, default_value_t = 9091)]
+        port: u16,
+    },
+
+    /// Surveiller arXiv : extrait les nouveaux papiers par topic dans le registre
+    Watch {
+        /// Topics à surveiller (ex: "recursive self-improvement" "agent memory")
+        #[arg(short, long, num_args = 1.., required = true)]
+        topics: Vec<String>,
+
+        /// Intervalle entre deux sondages en secondes
+        #[arg(long, default_value_t = 3600)]
+        interval_secs: u64,
+
+        /// Résultats arXiv maximum par topic et par tour
+        #[arg(long, default_value_t = 5)]
+        results_per_topic: usize,
+
+        /// Nombre de tours de surveillance (0 = infini jusqu'à Ctrl-C)
+        #[arg(long, default_value_t = 0)]
+        max_rounds: usize,
+
+        /// Chemin du registre de papiers
+        #[arg(long, default_value = "./papers_registry.json")]
+        registry: String,
     },
 }
 
