@@ -111,7 +111,6 @@ impl WasmExecutor {
         // Requis pour que Store::set_fuel fonctionne : sans cette option,
         // toute exécution réelle échouait avec "fuel is not configured".
         engine_config.consume_fuel(true);
-        engine_config.async_support(false);
 
         let engine = Engine::new(&engine_config)?;
         let engine_handle = engine.clone();
@@ -238,7 +237,7 @@ impl WasmExecutor {
     ///
     /// PAPERS may still generate Rust candidates, but empirical evaluation must
     /// be delegated to a real compiler/evaluator (RSI/CCOS Research Lab) or the
-    /// caller must explicitly compile the program to WASM and call [`execute`].
+    /// caller must explicitly compile the program to WASM and call [`Self::execute`].
     pub fn execute_rust_source(&self, source: &str) -> Result<WasmResult> {
         let start = Instant::now();
         if !source.contains("fn ") {

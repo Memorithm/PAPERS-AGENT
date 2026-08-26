@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - master
-      - feat/scientific-contracts-ccos-rsi
   pull_request:
     branches:
       - master
@@ -28,6 +27,17 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            papers_core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('papers_core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Reject machine-local dependency paths
         run: |
@@ -55,3 +65,24 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: Doc
+        run: cargo doc --no-deps
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Security audit
+        working-directory: papers_core
+        run: cargo audit

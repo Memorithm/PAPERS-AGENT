@@ -1,9 +1,10 @@
 # PAPERS V2 — Moteur d'évolution autonome en Rust
 
 [![Rust](https://img.shields.io/badge/Rust-15%2C7k%20lignes-orange)](papers_core/)
-[![Tests](https://img.shields.io/badge/tests-194%20OK-green)](papers_core/)
+[![Tests](https://img.shields.io/badge/tests-195%20OK-green)](papers_core/)
 [![Build](https://img.shields.io/badge/build-0%20warnings-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy--strict-0%20warnings-brightgreen)]()
+[![Audit](https://img.shields.io/badge/cargo--audit-0%20vuln%C3%A9rabilit%C3%A9-brightgreen)]()
 
 **PAPERS V2** transforme l'analyse de papiers scientifiques en hypothèses vérifiables et en code Rust candidat via une boucle d'évolution.  
 Le pipeline complet : **extraction** → **analyse** → **évolution** → **rapport** (Markdown/PDF) → **bundle scientifique versionné**.
@@ -37,7 +38,8 @@ cargo build --release
 
 ### Tests
 ```bash
-cargo test          # 194 tests (172 unit + 22 intégration), clippy strict -D warnings
+cargo test          # 195 tests (173 unit + 22 intégration), clippy strict -D warnings
+cargo audit         # 0 vulnérabilité connue (CI bloquante)
 ```
 
 ---
