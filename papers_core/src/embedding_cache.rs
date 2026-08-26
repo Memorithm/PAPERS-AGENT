@@ -63,7 +63,7 @@ impl EmbeddingCache {
         self.entries.get(&self.key(text)).cloned()
     }
 
-    /// Insère (ou remplace) un vecteur. La sauvegarde est différée ([`save`]).
+    /// Insère (ou remplace) un vecteur. La sauvegarde est différée ([`Self::save`]).
     pub fn put(&mut self, text: &str, vector: Vec<f32>) {
         self.entries.insert(self.key(text), vector);
         self.dirty = true;

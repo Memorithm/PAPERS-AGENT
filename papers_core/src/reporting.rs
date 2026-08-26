@@ -3,241 +3,289 @@ use std::path::Path;
 
 use crate::engine::AnalysisReport;
 
+fn frontmatter(report: &AnalysisReport) -> String {
+    let doc = &report.document;
+    let mut md = String::from("---\n");
+    md.push_str(&format!("id: {}\n", doc.id));
+    md.push_str(&format!("title: {}\n", doc.title));
+    md.push_str(&format!("authors: {}\n", doc.authors.join(", ")));
+    md.push_str(&format!("source: {}\n", doc.source));
+    md.push_str(&format!(
+        "date: {}\n",
+        doc.publication_date.as_deref().unwrap_or("N/A")
+    ));
+    md.push_str(&format!(
+        "integration_score: {:.2}\n",
+        report.integration_score
+    ));
+    md.push_str(&format!(
+        "reproducibility_score: {:.2}\n",
+        report.reproducibility_score
+    ));
+    md.push_str(&format!(
+        "recommendation: {}\n",
+        report.recommendation.label()
+    ));
+    md.push_str(&format!(
+        "github: {}\n",
+        doc.github_url.as_deref().unwrap_or("N/A")
+    ));
+    md.push_str(&format!(
+        "paper_url: {}\n",
+        doc.paper_url.as_deref().unwrap_or("N/A")
+    ));
+    md.push_str("---\n\n");
+    md
+}
+
+fn executive_section(report: &AnalysisReport) -> String {
+    let doc = &report.document;
+    let mut md = String::from("# Résumé Exécutif\n\n");
+    md.push_str(&report.executive_summary);
+    md.push_str("\n\n");
+
+    if let Some(ref abs) = doc.abstract_text {
+        md.push_str("## Abstract\n\n");
+        md.push_str(abs);
+        md.push_str("\n\n");
+    }
+    md
+}
+
+fn contributions_section(report: &AnalysisReport) -> String {
+    let mut md = String::from("## Contributions Scientifiques\n\n");
+    for c in &report.contributions {
+        md.push_str(&format!("- {}\n", c));
+    }
+    md.push('\n');
+    md
+}
+
+fn equations_section(report: &AnalysisReport) -> String {
+    if report.equations.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## Équations\n\n");
+    for eq in &report.equations {
+        md.push_str(&format!("- `{}`\n", eq));
+    }
+    md.push('\n');
+    md
+}
+
+fn variables_section(report: &AnalysisReport) -> String {
+    if report.variables.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## Variables\n\n");
+    md.push_str("| Variable | Signification |\n");
+    md.push_str("|----------|---------------|\n");
+    for (name, meaning) in &report.variables {
+        md.push_str(&format!("| {} | {} |\n", name, meaning));
+    }
+    md.push('\n');
+    md
+}
+
+fn algorithms_section(report: &AnalysisReport) -> String {
+    if report.algorithms.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## Algorithmes\n\n");
+    for algo in &report.algorithms {
+        md.push_str(&format!("### {}\n\n", algo.name));
+        if let Some(ref complexity) = algo.complexity {
+            md.push_str(&format!("- **Complexité**: {}\n", complexity));
+        }
+        if let Some(ref pseudo) = algo.pseudocode {
+            md.push_str("\n```text\n");
+            md.push_str(pseudo);
+            md.push_str("\n```\n\n");
+        }
+    }
+    md
+}
+
+fn system_section(report: &AnalysisReport) -> String {
+    let sys = &report.system_requirements;
+    let mut md = String::from("## Analyse Système\n\n");
+    md.push_str("| Ressource | Valeur |\n");
+    md.push_str("|-----------|--------|\n");
+    for (label, value) in [
+        ("VRAM", sys.vram.as_deref()),
+        ("RAM", sys.ram.as_deref()),
+        ("I/O disque", sys.disk.as_deref()),
+        ("Latence", sys.latency.as_deref()),
+        ("Débit", sys.throughput.as_deref()),
+        ("Scalabilité", sys.scalability.as_deref()),
+    ] {
+        md.push_str(&format!("| {} | {} |\n", label, value.unwrap_or("N/A")));
+    }
+    md.push('\n');
+    md
+}
+
+fn risks_section(report: &AnalysisReport) -> String {
+    if report.risks.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## Risques\n\n");
+    for risk in &report.risks {
+        md.push_str(&format!("- **{}**: {}", risk.level, risk.description));
+        if let Some(ref mitigation) = risk.mitigation {
+            md.push_str(&format!(" (Atténuation: {})", mitigation));
+        }
+        md.push('\n');
+    }
+    md.push('\n');
+    md
+}
+
+fn references_section(report: &AnalysisReport) -> String {
+    if report.document.references.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## Références\n\n");
+    for (i, r) in report.document.references.iter().enumerate() {
+        md.push_str(&format!("[{}] {}\n", i + 1, r));
+    }
+    md.push('\n');
+    md
+}
+
+fn architectural_mapping_section(report: &AnalysisReport) -> String {
+    if report.architectural_mapping == serde_json::Value::Null {
+        return String::new();
+    }
+    let mut md = String::from("## Cartographie Architecturale\n\n");
+    if let Some(obj) = report.architectural_mapping.as_object() {
+        for (pillar, keywords) in obj {
+            let Some(arr) = keywords.as_array() else {
+                continue;
+            };
+            if arr.is_empty() {
+                continue;
+            }
+            md.push_str(&format!("### {}\n", pillar));
+            for kw in arr.iter().filter_map(|kw| kw.as_str()) {
+                md.push_str(&format!("- {}\n", kw));
+            }
+            md.push('\n');
+        }
+    }
+    md
+}
+
+fn deep_analysis_section(report: &AnalysisReport) -> String {
+    if report.deep_analysis == serde_json::Value::Null {
+        return String::new();
+    }
+    let mut md = String::from("## Analyse Approfondie\n\n");
+    match &report.deep_analysis {
+        serde_json::Value::String(s) => {
+            md.push_str(s);
+            md.push_str("\n\n");
+        }
+        obj @ serde_json::Value::Object(_) => {
+            if let Some(summary) = obj.get("summary").and_then(|v| v.as_str()) {
+                md.push_str(summary);
+                md.push_str("\n\n");
+            }
+        }
+        _ => {}
+    }
+    md
+}
+
+fn experiment_plan_section(report: &AnalysisReport) -> String {
+    if report.experiment_plan == serde_json::Value::Null {
+        return String::new();
+    }
+    let mut md = String::from("## Plan d'Expérience\n\n");
+    match &report.experiment_plan {
+        serde_json::Value::String(s) => {
+            md.push_str(s);
+            md.push_str("\n\n");
+        }
+        obj @ serde_json::Value::Object(_) => {
+            if let Some(steps) = obj.get("steps").and_then(|v| v.as_array()) {
+                for (i, step) in steps
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, s)| s.as_str().map(|s| (i, s)))
+                {
+                    md.push_str(&format!("{}. {}\n", i + 1, step));
+                }
+                md.push('\n');
+            }
+        }
+        _ => {}
+    }
+    md
+}
+
+fn pseudo_code_section(report: &AnalysisReport) -> String {
+    if report.pseudo_code == serde_json::Value::Null {
+        return String::new();
+    }
+    let code = match &report.pseudo_code {
+        serde_json::Value::String(s) => Some(s.as_str()),
+        obj @ serde_json::Value::Object(_) => obj.get("code").and_then(|v| v.as_str()),
+        _ => None,
+    };
+    let Some(code) = code else {
+        return String::new();
+    };
+    format!("## Pseudo-code\n\n```text\n{code}\n```\n\n")
+}
+
+fn llm_warnings_section(report: &AnalysisReport) -> String {
+    if report.llm_warnings.is_empty() {
+        return String::new();
+    }
+    let mut md = String::from("## ⚠️ Avertissements LLM\n\n");
+    md.push_str(
+        "Sections possiblement incomplètes : le LLM n'a pas pu fournir \
+                 une réponse exploitable pour les analyses suivantes.\n\n",
+    );
+    for w in &report.llm_warnings {
+        md.push_str(&format!("- {}\n", w));
+    }
+    md.push('\n');
+    md
+}
+
+fn recommendation_section(report: &AnalysisReport) -> String {
+    let mut md = String::from("## Recommandation\n\n");
+    md.push_str(&format!("**{}**\n\n", report.recommendation.label()));
+    md.push_str(&report.recommendation_justification);
+    md.push_str("\n\n");
+    md
+}
+
 /// Générateur de rapports Markdown.
 pub struct ReportGenerator;
 
 impl ReportGenerator {
     /// Génère un rapport Markdown complet à partir d'une analyse.
     pub fn render(report: &AnalysisReport) -> String {
-        let doc = &report.document;
         let mut md = String::new();
 
-        // Frontmatter YAML
-        md.push_str("---\n");
-        md.push_str(&format!("id: {}\n", doc.id));
-        md.push_str(&format!("title: {}\n", doc.title));
-        md.push_str(&format!("authors: {}\n", doc.authors.join(", ")));
-        md.push_str(&format!("source: {}\n", doc.source));
-        md.push_str(&format!(
-            "date: {}\n",
-            doc.publication_date.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "integration_score: {:.2}\n",
-            report.integration_score
-        ));
-        md.push_str(&format!(
-            "reproducibility_score: {:.2}\n",
-            report.reproducibility_score
-        ));
-        md.push_str(&format!(
-            "recommendation: {}\n",
-            report.recommendation.label()
-        ));
-        md.push_str(&format!(
-            "github: {}\n",
-            doc.github_url.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "paper_url: {}\n",
-            doc.paper_url.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str("---\n\n");
-
-        // Résumé exécutif
-        md.push_str("# Résumé Exécutif\n\n");
-        md.push_str(&report.executive_summary);
-        md.push_str("\n\n");
-
-        // Abstract
-        if let Some(ref abs) = doc.abstract_text {
-            md.push_str("## Abstract\n\n");
-            md.push_str(abs);
-            md.push_str("\n\n");
-        }
-
-        // Contributions
-        md.push_str("## Contributions Scientifiques\n\n");
-        for c in &report.contributions {
-            md.push_str(&format!("- {}\n", c));
-        }
-        md.push('\n');
-
-        // Équations
-        if !report.equations.is_empty() {
-            md.push_str("## Équations\n\n");
-            for eq in &report.equations {
-                md.push_str(&format!("- `{}`\n", eq));
-            }
-            md.push('\n');
-        }
-
-        // Variables
-        if !report.variables.is_empty() {
-            md.push_str("## Variables\n\n");
-            md.push_str("| Variable | Signification |\n");
-            md.push_str("|----------|---------------|\n");
-            for (name, meaning) in &report.variables {
-                md.push_str(&format!("| {} | {} |\n", name, meaning));
-            }
-            md.push('\n');
-        }
-
-        // Algorithmes
-        if !report.algorithms.is_empty() {
-            md.push_str("## Algorithmes\n\n");
-            for algo in &report.algorithms {
-                md.push_str(&format!("### {}\n\n", algo.name));
-                if let Some(ref complexity) = algo.complexity {
-                    md.push_str(&format!("- **Complexité**: {}\n", complexity));
-                }
-                if let Some(ref pseudo) = algo.pseudocode {
-                    md.push_str("\n```text\n");
-                    md.push_str(pseudo);
-                    md.push_str("\n```\n\n");
-                }
-            }
-        }
-
-        // Exigences système
-        let sys = &report.system_requirements;
-        md.push_str("## Analyse Système\n\n");
-        md.push_str("| Ressource | Valeur |\n");
-        md.push_str("|-----------|--------|\n");
-        md.push_str(&format!(
-            "| VRAM | {} |\n",
-            sys.vram.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "| RAM | {} |\n",
-            sys.ram.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "| I/O disque | {} |\n",
-            sys.disk.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "| Latence | {} |\n",
-            sys.latency.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "| Débit | {} |\n",
-            sys.throughput.as_deref().unwrap_or("N/A")
-        ));
-        md.push_str(&format!(
-            "| Scalabilité | {} |\n",
-            sys.scalability.as_deref().unwrap_or("N/A")
-        ));
-        md.push('\n');
-
-        // Risques
-        if !report.risks.is_empty() {
-            md.push_str("## Risques\n\n");
-            for risk in &report.risks {
-                md.push_str(&format!("- **{}**: {}", risk.level, risk.description));
-                if let Some(ref mitigation) = risk.mitigation {
-                    md.push_str(&format!(" (Atténuation: {})", mitigation));
-                }
-                md.push('\n');
-            }
-            md.push('\n');
-        }
-
-        // Références
-        if !doc.references.is_empty() {
-            md.push_str("## Références\n\n");
-            for (i, r) in doc.references.iter().enumerate() {
-                md.push_str(&format!("[{}] {}\n", i + 1, r));
-            }
-            md.push('\n');
-        }
-
-        // Mapping architectural
-        if report.architectural_mapping != serde_json::Value::Null {
-            md.push_str("## Cartographie Architecturale\n\n");
-            if let Some(obj) = report.architectural_mapping.as_object() {
-                for (pillar, keywords) in obj {
-                    if let Some(arr) = keywords.as_array() {
-                        if !arr.is_empty() {
-                            md.push_str(&format!("### {}\n", pillar));
-                            for kw in arr {
-                                if let Some(s) = kw.as_str() {
-                                    md.push_str(&format!("- {}\n", s));
-                                }
-                            }
-                            md.push('\n');
-                        }
-                    }
-                }
-            }
-        }
-
-        // Analyse profonde
-        if report.deep_analysis != serde_json::Value::Null {
-            md.push_str("## Analyse Approfondie\n\n");
-            if let Some(s) = report.deep_analysis.as_str() {
-                md.push_str(s);
-                md.push_str("\n\n");
-            } else if let Some(obj) = report.deep_analysis.as_object() {
-                if let Some(summary) = obj.get("summary").and_then(|v| v.as_str()) {
-                    md.push_str(summary);
-                    md.push_str("\n\n");
-                }
-            }
-        }
-
-        // Plan d'expérience
-        if report.experiment_plan != serde_json::Value::Null {
-            md.push_str("## Plan d'Expérience\n\n");
-            if let Some(s) = report.experiment_plan.as_str() {
-                md.push_str(s);
-                md.push_str("\n\n");
-            } else if let Some(obj) = report.experiment_plan.as_object() {
-                if let Some(steps) = obj.get("steps").and_then(|v| v.as_array()) {
-                    for (i, step) in steps.iter().enumerate() {
-                        if let Some(s) = step.as_str() {
-                            md.push_str(&format!("{}. {}\n", i + 1, s));
-                        }
-                    }
-                    md.push('\n');
-                }
-            }
-        }
-
-        // Pseudo-code
-        if report.pseudo_code != serde_json::Value::Null {
-            md.push_str("## Pseudo-code\n\n");
-            if let Some(s) = report.pseudo_code.as_str() {
-                md.push_str("```text\n");
-                md.push_str(s);
-                md.push_str("\n```\n\n");
-            } else if let Some(obj) = report.pseudo_code.as_object() {
-                if let Some(code) = obj.get("code").and_then(|v| v.as_str()) {
-                    md.push_str("```text\n");
-                    md.push_str(code);
-                    md.push_str("\n```\n\n");
-                }
-            }
-        }
-
-        // Avertissements LLM (échecs explicites en mode strict)
-        if !report.llm_warnings.is_empty() {
-            md.push_str("## ⚠️ Avertissements LLM\n\n");
-            md.push_str(
-                "Sections possiblement incomplètes : le LLM n'a pas pu fournir \
-                         une réponse exploitable pour les analyses suivantes.\n\n",
-            );
-            for w in &report.llm_warnings {
-                md.push_str(&format!("- {}\n", w));
-            }
-            md.push('\n');
-        }
-
-        // Recommandation
-        md.push_str("## Recommandation\n\n");
-        md.push_str(&format!("**{}**\n\n", report.recommendation.label()));
-        md.push_str(&report.recommendation_justification);
-        md.push_str("\n\n");
+        md.push_str(&frontmatter(report));
+        md.push_str(&executive_section(report));
+        md.push_str(&contributions_section(report));
+        md.push_str(&equations_section(report));
+        md.push_str(&variables_section(report));
+        md.push_str(&algorithms_section(report));
+        md.push_str(&system_section(report));
+        md.push_str(&risks_section(report));
+        md.push_str(&references_section(report));
+        md.push_str(&architectural_mapping_section(report));
+        md.push_str(&deep_analysis_section(report));
+        md.push_str(&experiment_plan_section(report));
+        md.push_str(&pseudo_code_section(report));
+        md.push_str(&llm_warnings_section(report));
+        md.push_str(&recommendation_section(report));
 
         // Footer
         md.push_str("---\n");
