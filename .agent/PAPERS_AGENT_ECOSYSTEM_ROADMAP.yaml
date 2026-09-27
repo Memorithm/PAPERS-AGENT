@@ -23,3 +23,13 @@ ax_task_program:
     - generated_code_does_not_score_or_promote_itself
     - task_success_is_not_empirical_validation
     - source_and_candidate_provenance_are_immutable
+
+progress:
+  bootstrap:
+    pull_request: 4
+    merged_commit: "01ca71db260c2b8eaac5bd7fc5e42210cbcc93f3"
+    result: mandatory_task_bootstrap_and_rustls_security_repair
+  current_slice:
+    scope: AXP1
+    status: ready
+    objective: bind_source_paper_candidate_and_toolchain_identity
