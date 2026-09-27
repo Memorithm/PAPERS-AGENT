@@ -1,0 +1,25 @@
+schema_version: 1
+kind: papers_agent_ecosystem_roadmap
+status: active
+last_updated: "2026-09-27"
+repository: Memorithm/PAPERS-AGENT
+merge_policy: never_merge_this_file_to_default_branch_unless_user_explicitly_requests
+mission:
+  role: scientific_candidate_generation_consumer
+  boundary: PAPERS_proposes_hypotheses_and_code_external_runtimes_own_empirical_authority
+ax_task_program:
+  external_reference: google_ax_architecture_only
+  objective: >-
+    Run extraction, candidate generation, compilation and empirical handoff in
+    exact task workspaces with explicit capabilities, resource envelopes and
+    isolation, while preserving external evaluation authority.
+  phases:
+    - AXP1_bind_source_paper_candidate_and_toolchain_identity
+    - AXP2_isolate_generated_code_execution_container_or_stronger
+    - AXP3_default_deny_network_for_untrusted_candidate_evaluation
+    - AXP4_attach_cpu_ram_time_and_model_token_budgets
+    - AXP5_bind_scientific_bundle_and_external_evaluation_provenance
+  invariants:
+    - generated_code_does_not_score_or_promote_itself
+    - task_success_is_not_empirical_validation
+    - source_and_candidate_provenance_are_immutable
