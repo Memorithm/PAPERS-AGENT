@@ -19,6 +19,8 @@ pub enum CompileToWasmError {
     /// La cible `wasm32-unknown-unknown` n'est pas installée
     /// (`rustup target add wasm32-unknown-unknown`).
     WasmTargetMissing,
+    /// Aucun point d'entrée explicite compatible avec l'ABI PAPERS n'a été trouvé.
+    EntrypointMissing,
     /// Erreur de compilation du candidat (extrait stderr inclus).
     Compilation(String),
     /// Erreur d'E/S locale (tempdir, lecture/écriture).
@@ -36,6 +38,10 @@ impl CompileToWasmError {
                  wasm32-unknown-unknown` pour activer l'exécution réelle des candidats"
                     .into()
             }
+            Self::EntrypointMissing => {
+                "candidat refusé : export `main: () -> ()` ou fonction `run()` explicite requis"
+                    .into()
+            }
             Self::Compilation(msg) => msg.clone(),
             Self::Io(msg) => format!("E/S compilation WASM: {msg}"),
         }
@@ -49,19 +55,19 @@ impl std::fmt::Display for CompileToWasmError {
 }
 
 /// Génère l'adaptateur `main` selon le contenu du candidat.
-fn adapter_for(source: &str) -> &'static str {
+fn adapter_for(source: &str) -> std::result::Result<&'static str, CompileToWasmError> {
     let has_exported_main = source.contains("no_mangle")
         && source.contains("extern \"C\"")
         && (source.contains("fn main(") || source.contains("fn main ()"));
     if has_exported_main {
-        return "";
+        return Ok("");
     }
     if source.contains("fn run(") || source.contains("fn run ()") {
         // Candidat conforme à la convention `run()` : appel réel.
-        "\n// Adaptateur généré par PAPERS : exposition de run() comme point d'entrée.\n#[no_mangle]\npub extern \"C\" fn main() {\n    run();\n}\n"
+        Ok("\n// Adaptateur généré par PAPERS : exposition de run() comme point d'entrée.\n#[no_mangle]\npub extern \"C\" fn main() {\n    run();\n}\n")
     } else {
-        // Aucun point d'entrée identifiable : module minimal exécutable.
-        "\n// Adaptateur généré par PAPERS : point d'entrée vide (aucun run() détecté).\n#[no_mangle]\npub extern \"C\" fn main() {}\n"
+        // Un helper qui compile n'est pas une exécution de l'algorithme annoncé.
+        Err(CompileToWasmError::EntrypointMissing)
     }
 }
 
@@ -272,8 +278,8 @@ impl WasmExecutor {
     ///   est compilé tel quel ;
     /// - le source définit `fn run()` (zéro arg) → un adaptateur généré appelle
     ///   `run` depuis `main` ;
-    /// - sinon → un `main` vide est ajouté : le module s'exécute mais n'a pas
-    ///   de comportement observable (le résultat reste néanmoins réel).
+    /// - sinon → la compilation est refusée : PAPERS ne fabrique jamais un
+    ///   `main` vide pour transformer un helper en exécution réussie.
     pub fn compile_source_to_wasm(
         &self,
         source: &str,
@@ -281,7 +287,8 @@ impl WasmExecutor {
         let dir =
             tempfile::tempdir().map_err(|e| CompileToWasmError::Io(format!("tempdir: {e}")))?;
         let src_path = dir.path().join("candidate.rs");
-        let full_source = format!("{}\n{}", source.trim(), adapter_for(source));
+        let adapter = adapter_for(source)?;
+        let full_source = format!("{}\n{}", source.trim(), adapter);
         std::fs::write(&src_path, full_source)
             .map_err(|e| CompileToWasmError::Io(format!("écriture source: {e}")))?;
 
@@ -415,7 +422,7 @@ mod tests {
     fn wasm_toolchain_available() -> bool {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         executor
-            .compile_source_to_wasm("fn probe_presence() {}")
+            .compile_source_to_wasm("pub fn run() {}")
             .is_ok()
     }
 
@@ -471,7 +478,7 @@ pub fn run() {
     #[test]
     fn test_compile_source_to_wasm_produces_valid_module() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        let bytes = executor.compile_source_to_wasm("pub fn helper() -> u8 { 1 }");
+        let bytes = executor.compile_source_to_wasm("pub fn run() { let _ = 1_u8; }");
         match bytes {
             Ok(wasm) => {
                 assert!(WasmExecutor::validate_wasm(&wasm));
@@ -492,8 +499,20 @@ pub fn run() {
         assert_eq!(adapter_for(exported), "");
         // Convention run() → adaptateur appelant run.
         assert!(adapter_for("pub fn run() {}").contains("run();"));
-        // Sinon → adaptateur vide.
-        assert!(adapter_for("pub fn foo() {}").contains("main() {}"));
+        // Sinon → refus explicite, jamais de `main` vide.
+        assert!(matches!(
+            adapter_for("pub fn foo() {}"),
+            Err(CompileToWasmError::EntrypointMissing)
+        ));
+    }
+
+    #[test]
+    fn test_missing_entrypoint_is_rejected_before_toolchain_lookup() {
+        let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
+        assert!(matches!(
+            executor.compile_source_to_wasm("pub fn helper() -> u8 { 1 }"),
+            Err(CompileToWasmError::EntrypointMissing)
+        ));
     }
 
     #[test]
