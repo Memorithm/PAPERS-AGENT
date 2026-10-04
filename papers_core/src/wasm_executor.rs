@@ -220,7 +220,7 @@ impl WasmExecutor {
     /// Module bytes and instance resources are bounded before execution. This
     /// protects the in-process diagnostic path but is not a substitute for the
     /// OS-isolated backend required for hostile generated code.
-    pub fn execute(&self, wasm_bytes: &[u8]) -> Result<WasmResult> {
+    pub fn execute_trusted_wasm(&self, wasm_bytes: &[u8]) -> Result<WasmResult> {
         let start = Instant::now();
         if wasm_bytes.len() > self.config.max_module_bytes {
             return Ok(WasmResult {
@@ -620,7 +620,7 @@ pub fn run() {
             Ok(wasm) => {
                 assert!(WasmExecutor::validate_wasm(&wasm));
                 // L'adaptateur a bien généré un export main : exécution réussie.
-                let result = executor.execute(&wasm).unwrap();
+                let result = executor.execute_trusted_wasm(&wasm).unwrap();
                 assert!(result.success, "{:?}", result.error);
             }
             Err(CompileToWasmError::RustcUnavailable)
@@ -659,7 +659,7 @@ pub fn run() {
             ..WasmConfig::default()
         })
         .unwrap();
-        let result = executor.execute(&[0_u8; 5]).unwrap();
+        let result = executor.execute_trusted_wasm(&[0_u8; 5]).unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("module exceeds"));
     }
