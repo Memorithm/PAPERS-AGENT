@@ -112,7 +112,9 @@ cargo run --bin papers-contract -- \
 
 `WasmExecutor::execute` still executes genuine WASM with Wasmtime fuel and epoch deadlines.
 
-`WasmExecutor::execute_rust_source` now fails closed. Rust source is **not** declared successfully executed until it has really been compiled and evaluated. The evolution loop also maps every failed/refused evaluation to zero selection fitness, even when a diagnostic structural score exists.
+`WasmExecutor::execute_rust_source` compiles only candidates with an explicit PAPERS entrypoint: either an exported `main: () -> ()` or a zero-argument `run()` adapted to that export. Helper-only source is refused; PAPERS never fabricates an empty `main` to turn compilation into execution.
+
+Compilation success and Wasmtime runtime success are **diagnostic evidence only**. They record runtime status, fuel consumed and duration, but produce zero empirical fitness. The evolution loop may rank a candidate only after an explicit task evaluator establishes `task_oracle` authority. Structural checks likewise remain diagnostic. This prevents execution success, larger fuel consumption, or code shape from being silently promoted into task correctness.
 
 For repository improvements the preferred empirical path is RSI/CCOS Research Lab:
 
