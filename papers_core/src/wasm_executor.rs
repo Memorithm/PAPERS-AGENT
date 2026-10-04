@@ -562,7 +562,7 @@ mod tests {
     fn test_execute_invalid_wasm() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         let result = executor
-            .execute(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
+            .execute_trusted_wasm(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
             .unwrap();
         assert!(!result.success);
     }
@@ -684,7 +684,7 @@ pub fn run() {
         })
         .unwrap();
         let result = executor
-            .execute(br#"(module (memory 2) (func (export "main")))"#)
+            .execute_trusted_wasm(br#"(module (memory 2) (func (export "main")))"#)
             .unwrap();
         assert!(!result.success);
         assert!(
@@ -703,7 +703,7 @@ pub fn run() {
         })
         .unwrap();
         let result = executor
-            .execute(br#"(module (table 10 funcref) (func (export "main")))"#)
+            .execute_trusted_wasm(br#"(module (table 10 funcref) (func (export "main")))"#)
             .unwrap();
         assert!(!result.success);
         assert!(
