@@ -278,7 +278,7 @@ mod tests {
         let engineer = Engineer::new(1);
         let output = engineer.execute(
             "pub fn run() {}",
-            Some(|_| EngineerOutput {
+            Some(|_: &str| EngineerOutput {
                 success: true,
                 score: 0.75,
                 error: None,
