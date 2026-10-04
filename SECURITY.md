@@ -39,12 +39,21 @@ Merci d'inclure :
 
 ## Contexte sécurité spécifique au projet
 
-PAPERS exécute **du code généré par LLM** dans deux contextes cloisonnés :
+PAPERS traite du code généré par LLM, mais le chemin public ne doit pas
+transformer cette donnée non fiable en compilation hôte implicite :
 
-1. **Sandbox WASM** (`wasm_executor.rs`) — wasmtime avec fuel limit + epoch
-   deadline ; compilation réelle via `rustc --target wasm32-unknown-unknown`.
-   Toute fuite de sandbox wasmtime est considérée comme critique.
-2. **Sondes locales** (`probes.rs`) — invocation `rustc --emit=metadata`
+1. **Rust généré** (`wasm_executor.rs`) — `execute_rust_source` borne la taille
+   et valide l'ABI, puis refuse l'exécution locale. La compilation/exécution de
+   code non fiable doit passer par le runtime OS isolé SciRust-Hub/RemoteOps.
+2. **WASM local de diagnostic** — wasmtime applique limite de module, fuel,
+   epoch deadline et `StoreLimits` (mémoire, tables, instances). Cette voie
+   in-process n'est pas un sandbox hostile-code OS et ne borne pas à elle seule
+   toute la mémoire JIT.
+3. **Compilation locale explicitement de confiance** — le helper
+   `compile_trusted_source_to_wasm` conserve un timeout distinct et draine
+   `stderr` en ne retenant qu'un préfixe borné. Il ne doit jamais recevoir du
+   code généré ou tiers.
+4. **Sondes locales** (`probes.rs`) — invocation `rustc --emit=metadata`
    avec timeout, sans exécution du code candidat.
 
 Le cœur refuse par conception de produire des scores empiriques synthétiques :
