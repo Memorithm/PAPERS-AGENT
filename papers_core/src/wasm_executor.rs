@@ -394,9 +394,9 @@ impl WasmExecutor {
         })
     }
 
-    /// Compile localement un source Rust vers WASM (`wasm32-unknown-unknown`).
+    /// Compile localement un source Rust de confiance vers WASM.
     ///
-    /// This helper is crate-private and must not be used for generated or
+    /// This explicit trusted-only escape hatch must never receive generated or
     /// third-party source. Production untrusted compilation is deliberately
     /// refused by [`Self::execute_rust_source`] until the external qualified
     /// SciRust-Hub/RemoteOps boundary is wired.
@@ -409,7 +409,7 @@ impl WasmExecutor {
     ///   `run` depuis `main` ;
     /// - sinon → la compilation est refusée : PAPERS ne fabrique jamais un
     ///   `main` vide pour transformer un helper en exécution réussie.
-    fn compile_source_to_wasm(
+    pub fn compile_trusted_source_to_wasm(
         &self,
         source: &str,
     ) -> std::result::Result<Vec<u8>, CompileToWasmError> {
@@ -602,7 +602,7 @@ pub fn run() {
     let _ = x;
 }
 "#;
-        match executor.compile_source_to_wasm(source) {
+        match executor.compile_trusted_source_to_wasm(source) {
             Err(CompileToWasmError::Compilation(message)) => {
                 assert!(message.contains("Compilation échouée"), "{message}");
             }
@@ -615,7 +615,7 @@ pub fn run() {
     #[test]
     fn test_compile_source_to_wasm_produces_valid_module() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        let bytes = executor.compile_source_to_wasm("pub fn run() { let _ = 1_u8; }");
+        let bytes = executor.compile_trusted_source_to_wasm("pub fn run() { let _ = 1_u8; }");
         match bytes {
             Ok(wasm) => {
                 assert!(WasmExecutor::validate_wasm(&wasm));
@@ -647,7 +647,7 @@ pub fn run() {
     fn test_missing_entrypoint_is_rejected_before_toolchain_lookup() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         assert!(matches!(
-            executor.compile_source_to_wasm("pub fn helper() -> u8 { 1 }"),
+            executor.compile_trusted_source_to_wasm("pub fn helper() -> u8 { 1 }"),
             Err(CompileToWasmError::EntrypointMissing)
         ));
     }
