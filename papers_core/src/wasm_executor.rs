@@ -77,6 +77,33 @@ fn adapter_for(source: &str) -> std::result::Result<&'static str, CompileToWasmE
     }
 }
 
+fn spawn_bounded_stderr_reader(mut stderr: ChildStderr) -> JoinHandle<std::io::Result<Vec<u8>>> {
+    std::thread::spawn(move || {
+        let mut captured = Vec::with_capacity(MAX_RUSTC_STDERR_BYTES);
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = stderr.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            let remaining = MAX_RUSTC_STDERR_BYTES.saturating_sub(captured.len());
+            if remaining > 0 {
+                captured.extend_from_slice(&buffer[..read.min(remaining)]);
+            }
+        }
+        Ok(captured)
+    })
+}
+
+fn join_stderr(
+    reader: JoinHandle<std::io::Result<Vec<u8>>>,
+) -> std::result::Result<Vec<u8>, CompileToWasmError> {
+    reader
+        .join()
+        .map_err(|_| CompileToWasmError::Io("thread stderr rustc interrompu".into()))?
+        .map_err(|e| CompileToWasmError::Io(format!("lecture stderr rustc: {e}")))
+}
+
 /// Configuration for bounded local WASM execution.
 ///
 /// These in-process limits reduce resource amplification but are not an OS
@@ -321,6 +348,18 @@ impl WasmExecutor {
     /// caller must explicitly compile the program to WASM and call [`Self::execute`].
     pub fn execute_rust_source(&self, source: &str) -> Result<WasmResult> {
         let start = Instant::now();
+        if source.len() > self.config.max_source_bytes {
+            return Ok(WasmResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Rust source exceeds {} byte limit",
+                    self.config.max_source_bytes
+                )),
+                fuel_consumed: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
         if !source.contains("fn ") {
             return Ok(WasmResult {
                 success: false,
@@ -359,11 +398,23 @@ impl WasmExecutor {
         &self,
         source: &str,
     ) -> std::result::Result<Vec<u8>, CompileToWasmError> {
+        if source.len() > self.config.max_source_bytes {
+            return Err(CompileToWasmError::Compilation(format!(
+                "source Rust dépasse la limite de {} octets",
+                self.config.max_source_bytes
+            )));
+        }
         let dir =
             tempfile::tempdir().map_err(|e| CompileToWasmError::Io(format!("tempdir: {e}")))?;
         let src_path = dir.path().join("candidate.rs");
         let adapter = adapter_for(source)?;
         let full_source = format!("{}\n{}", source.trim(), adapter);
+        if full_source.len() > self.config.max_source_bytes {
+            return Err(CompileToWasmError::Compilation(format!(
+                "source Rust adaptée dépasse la limite de {} octets",
+                self.config.max_source_bytes
+            )));
+        }
         std::fs::write(&src_path, full_source)
             .map_err(|e| CompileToWasmError::Io(format!("écriture source: {e}")))?;
 
