@@ -3,14 +3,47 @@ use std::time::Instant;
 
 use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
 
+/// Authority of an evaluation result.
+///
+/// Only an explicit task oracle can establish empirical fitness. Runtime
+/// execution and structural analysis remain useful diagnostics, but must never
+/// promote a generated candidate by themselves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationAuthority {
+    TaskOracle,
+    WasmRuntimeDiagnostic,
+    StructuralDiagnostic,
+}
+
+impl EvaluationAuthority {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TaskOracle => "task_oracle",
+            Self::WasmRuntimeDiagnostic => "wasm_runtime_diagnostic",
+            Self::StructuralDiagnostic => "structural_diagnostic",
+        }
+    }
+}
+
 /// Result of evaluating a candidate program.
 #[derive(Debug, Clone)]
 pub struct EngineerOutput {
     pub success: bool,
+    /// Score emitted by the selected evaluation stage.
+    ///
+    /// This is empirical fitness only when `authority == TaskOracle`.
     pub score: f64,
     pub error: Option<String>,
     pub metrics: HashMap<String, f64>,
     pub runtime_secs: f64,
+    pub authority: EvaluationAuthority,
+}
+
+impl EngineerOutput {
+    #[must_use]
+    pub const fn is_empirically_validated(&self) -> bool {
+        self.success && matches!(self.authority, EvaluationAuthority::TaskOracle)
+    }
 }
 
 /// Evaluates candidate programs produced by the Researcher.
@@ -48,6 +81,8 @@ impl Engineer {
 
         if let Some(f) = eval_fn {
             let mut result = f(program);
+            // Supplying the evaluator is the explicit task-oracle boundary.
+            result.authority = EvaluationAuthority::TaskOracle;
             result.runtime_secs = start.elapsed().as_secs_f64();
             return result;
         }
@@ -68,6 +103,7 @@ impl Engineer {
                         error: Some(format!("WASM error: {}", e)),
                         metrics,
                         runtime_secs: start.elapsed().as_secs_f64(),
+                        authority: EvaluationAuthority::WasmRuntimeDiagnostic,
                     };
                 }
             }
@@ -83,15 +119,20 @@ impl Engineer {
         metrics.insert("fuel_consumed".into(), wasm.fuel_consumed as f64);
         metrics.insert("duration_ms".into(), wasm.duration_ms as f64);
 
-        let base = if wasm.success { 0.4 } else { 0.1 };
-        let fuel_efficiency = (wasm.fuel_consumed as f64 / 1000.0).min(1.0) * 0.3;
+        metrics.insert(
+            "runtime_success".into(),
+            if wasm.success { 1.0 } else { 0.0 },
+        );
 
         EngineerOutput {
             success: wasm.success,
-            score: base + fuel_efficiency,
+            // Runtime success is not task correctness. Fuel is evidence about
+            // work consumed, never a positive reward signal.
+            score: 0.0,
             error: wasm.error.clone(),
             metrics,
             runtime_secs: start.elapsed().as_secs_f64(),
+            authority: EvaluationAuthority::WasmRuntimeDiagnostic,
         }
     }
 
@@ -154,6 +195,7 @@ impl Engineer {
                 error: None,
                 metrics,
                 runtime_secs: start.elapsed().as_secs_f64(),
+                authority: EvaluationAuthority::StructuralDiagnostic,
             }
         } else {
             let mut error = Vec::new();
@@ -169,6 +211,7 @@ impl Engineer {
                 error: Some(error.join("; ")),
                 metrics,
                 runtime_secs: start.elapsed().as_secs_f64(),
+                authority: EvaluationAuthority::StructuralDiagnostic,
             }
         }
     }
@@ -202,5 +245,50 @@ impl Engineer {
             Some(judge) => primary * 0.8 + judge * 0.2,
             None => primary,
         }
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wasm_runtime_success_is_diagnostic_not_empirical_fitness() {
+        let engineer = Engineer::new(1);
+        let result = engineer.wasm_result_to_output(
+            &WasmResult {
+                success: true,
+                output: String::new(),
+                error: None,
+                fuel_consumed: 900_000,
+                duration_ms: 12,
+            },
+            Instant::now(),
+        );
+        assert!(result.success);
+        assert_eq!(result.authority, EvaluationAuthority::WasmRuntimeDiagnostic);
+        assert_eq!(result.score, 0.0);
+        assert!(!result.is_empirically_validated());
+        assert_eq!(result.metrics.get("fuel_consumed"), Some(&900_000.0));
+    }
+
+    #[test]
+    fn explicit_evaluator_is_the_task_oracle_boundary() {
+        let engineer = Engineer::new(1);
+        let output = engineer.execute(
+            "pub fn run() {}",
+            Some(|_| EngineerOutput {
+                success: true,
+                score: 0.75,
+                error: None,
+                metrics: HashMap::new(),
+                runtime_secs: 0.0,
+                authority: EvaluationAuthority::StructuralDiagnostic,
+            }),
+        );
+        assert_eq!(output.authority, EvaluationAuthority::TaskOracle);
+        assert!(output.is_empirically_validated());
+        assert_eq!(output.score, 0.75);
     }
 }
