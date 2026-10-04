@@ -575,47 +575,26 @@ mod tests {
         assert!(result.error.unwrap().contains("no function"));
     }
 
-    /// Indique si la chaîne d'outils wasm32 est disponible dans cet environnement.
-    fn wasm_toolchain_available() -> bool {
-        let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
-        executor
-            .compile_source_to_wasm("pub fn run() {}")
-            .is_ok()
-    }
-
     #[test]
-    fn test_execute_rust_source_compiles_and_runs_run_convention() {
+    fn test_execute_rust_source_requires_external_isolation() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         let source = r#"
 pub fn compute() -> u64 { 6 * 7 }
 
 pub fn run() {
-    // Computation réelle exécutée dans le sandbox ; le résultat n'est pas
-    // observable hors du module mais l'exécution consomme du fuel.
     let _ = compute();
 }
 "#;
         let result = executor.execute_rust_source(source).unwrap();
-        if wasm_toolchain_available() {
-            assert!(
-                result.success,
-                "exécution réelle attendue: {:?}",
-                result.error
-            );
-            assert!(result.fuel_consumed > 0, "du fuel doit être consommé");
-            assert!(result.duration_ms <= executor.config.timeout.as_millis() as u64 + 5_000);
-        } else {
-            assert!(!result.success);
-            let err = result.error.unwrap_or_default();
-            assert!(
-                err.contains("wasm32") || err.contains("rustc"),
-                "message d'indication attendu, obtenu: {err}"
-            );
-        }
+        assert!(!result.success);
+        let error = result.error.unwrap_or_default();
+        assert!(error.contains("OS-isolated"), "{error}");
+        assert!(error.contains("RemoteOps"), "{error}");
+        assert_eq!(result.fuel_consumed, 0);
     }
 
     #[test]
-    fn test_execute_rust_source_rejects_type_error() {
+    fn test_trusted_local_compiler_rejects_type_error() {
         let executor = WasmExecutor::new(WasmConfig::default()).unwrap();
         let source = r#"
 pub fn run() {
@@ -623,11 +602,12 @@ pub fn run() {
     let _ = x;
 }
 "#;
-        let result = executor.execute_rust_source(source).unwrap();
-        assert!(!result.success);
-        match result.error {
-            Some(err) if err.contains("Compilation échouée") => {}
-            Some(err) if err.contains("wasm32") || err.contains("rustc") => {}
+        match executor.compile_source_to_wasm(source) {
+            Err(CompileToWasmError::Compilation(message)) => {
+                assert!(message.contains("Compilation échouée"), "{message}");
+            }
+            Err(CompileToWasmError::RustcUnavailable)
+            | Err(CompileToWasmError::WasmTargetMissing) => {}
             other => panic!("erreur de compilation attendue, obtenu: {other:?}"),
         }
     }
