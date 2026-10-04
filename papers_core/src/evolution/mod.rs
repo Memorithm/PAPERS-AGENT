@@ -10,7 +10,7 @@ use crate::llm::LlmClient;
 use crate::models::*;
 
 pub use self::analyzer::{AnalysisOutput, Analyzer};
-pub use self::engineer::{Engineer, EngineerOutput};
+pub use self::engineer::{Engineer, EngineerOutput, EvaluationAuthority};
 pub use self::researcher::{Researcher, ResearcherOutput};
 
 pub struct EvolutionLoop {
@@ -40,9 +40,9 @@ impl EvolutionLoop {
 
     /// Runs the Researcher -> Engineer -> Analyzer pipeline.
     ///
-    /// A candidate contributes to selection only when its evaluator reports
-    /// `success=true`. Structural/sandbox refusals may expose diagnostic scores,
-    /// but those scores are never interpreted as empirical fitness.
+    /// A candidate contributes to selection only when an explicit task oracle
+    /// reports success. WASM runtime success and structural checks may expose
+    /// diagnostics, but are never interpreted as empirical fitness.
     pub fn run_advanced(&mut self, llm: &LlmClient, task_description: &str) -> EvolutionResult {
         let start = Instant::now();
         let mut best_score = 0.0_f64;
@@ -90,7 +90,7 @@ impl EvolutionLoop {
                     .execute(&output.program, None::<fn(&str) -> EngineerOutput>);
                 let diagnostic_score =
                     Engineer::compute_fitness(&result.metrics, result.score, None);
-                let fitness = if result.success {
+                let fitness = if result.is_empirically_validated() {
                     diagnostic_score
                 } else {
                     0.0
@@ -112,18 +112,23 @@ impl EvolutionLoop {
                     "runtime_secs".into(),
                     serde_json::json!(result.runtime_secs),
                 );
+                node.results.insert(
+                    "evaluation_authority".into(),
+                    serde_json::json!(result.authority.as_str()),
+                );
                 if let Some(ref err) = result.error {
                     node.results.insert("error".into(), serde_json::json!(err));
                 }
                 node.analysis = format!(
-                    "fitness={fitness:.4}, diagnostic={diagnostic_score:.4}, success={}",
-                    result.success
+                    "fitness={fitness:.4}, diagnostic={diagnostic_score:.4}, success={}, authority={}",
+                    result.success,
+                    result.authority.as_str()
                 );
                 node.score = fitness;
 
                 self.database.add(node.clone());
 
-                if result.success && fitness > best_score {
+                if result.is_empirically_validated() && fitness > best_score {
                     best_score = fitness;
                     best_node = Some(node);
                     rounds_without_improvement = 0;
