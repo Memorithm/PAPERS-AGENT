@@ -189,10 +189,35 @@ impl WasmExecutor {
     }
 
     /// Execute a genuine WASM binary exporting `main: () -> ()`.
+    ///
+    /// Module bytes and instance resources are bounded before execution. This
+    /// protects the in-process diagnostic path but is not a substitute for the
+    /// OS-isolated backend required for hostile generated code.
     pub fn execute(&self, wasm_bytes: &[u8]) -> Result<WasmResult> {
         let start = Instant::now();
+        if wasm_bytes.len() > self.config.max_module_bytes {
+            return Ok(WasmResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "WASM module exceeds {} byte limit",
+                    self.config.max_module_bytes
+                )),
+                fuel_consumed: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
 
-        let mut store = Store::new(&self.engine, ());
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(self.config.max_memory_bytes)
+            .table_elements(self.config.max_table_elements)
+            .instances(1)
+            .memories(1)
+            .tables(1)
+            .trap_on_grow_failure(true)
+            .build();
+        let mut store = Store::new(&self.engine, WasmStoreState { limits });
+        store.limiter(|state| &mut state.limits);
         if let Err(e) = store.set_fuel(self.config.fuel_limit) {
             return Ok(WasmResult {
                 success: false,
