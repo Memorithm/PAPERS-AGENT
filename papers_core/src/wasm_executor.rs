@@ -1,5 +1,7 @@
-use std::process::{Command, Stdio};
+use std::io::Read;
+use std::process::{ChildStderr, Command, Stdio};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -8,8 +10,12 @@ use wasmtime::*;
 /// Cible de compilation pour l'exécution sandboxée.
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
-/// Délai maximal d'une invocation rustc pour la compilation candidat→WASM.
-const RUSTC_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_COMPILE_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_MAX_SOURCE_BYTES: usize = 1024 * 1024;
+const DEFAULT_MAX_MODULE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_MAX_TABLE_ELEMENTS: usize = 65_536;
+const MAX_RUSTC_STDERR_BYTES: usize = 16 * 1024;
 
 /// Échecs possibles de la compilation Rust → WASM.
 #[derive(Debug, Clone)]
@@ -71,13 +77,47 @@ fn adapter_for(source: &str) -> std::result::Result<&'static str, CompileToWasmE
     }
 }
 
-/// Configuration for WASM sandbox execution.
+/// Configuration for bounded local WASM execution.
+///
+/// These in-process limits reduce resource amplification but are not an OS
+/// hostile-code sandbox. Generated/untrusted compilation still requires the
+/// external SciRust-Hub/RemoteOps isolation boundary before PAPERS-01 can be
+/// considered fully closed.
 #[derive(Debug, Clone)]
 pub struct WasmConfig {
-    /// Fuel limit (instructions) before termination. Default: 1_000_000.
+    /// Fuel limit (instructions) before termination.
     pub fuel_limit: u64,
-    /// Maximum execution time. Default: 30 seconds.
+    /// Maximum execution time.
     pub timeout: Duration,
+    /// Maximum wall-clock time for a local rustc invocation.
+    pub compile_timeout: Duration,
+    /// Maximum accepted Rust source size.
+    pub max_source_bytes: usize,
+    /// Maximum accepted/produced WASM module size.
+    pub max_module_bytes: usize,
+    /// Maximum bytes for each linear memory in the Wasmtime Store.
+    pub max_memory_bytes: usize,
+    /// Maximum elements for each Wasmtime table.
+    pub max_table_elements: usize,
+}
+
+impl WasmConfig {
+    fn validate(&self) -> Result<()> {
+        anyhow::ensure!(self.fuel_limit > 0, "fuel_limit must be non-zero");
+        anyhow::ensure!(!self.timeout.is_zero(), "timeout must be non-zero");
+        anyhow::ensure!(
+            !self.compile_timeout.is_zero(),
+            "compile_timeout must be non-zero"
+        );
+        anyhow::ensure!(self.max_source_bytes > 0, "max_source_bytes must be non-zero");
+        anyhow::ensure!(self.max_module_bytes > 0, "max_module_bytes must be non-zero");
+        anyhow::ensure!(self.max_memory_bytes > 0, "max_memory_bytes must be non-zero");
+        anyhow::ensure!(
+            self.max_table_elements > 0,
+            "max_table_elements must be non-zero"
+        );
+        Ok(())
+    }
 }
 
 impl Default for WasmConfig {
@@ -85,8 +125,17 @@ impl Default for WasmConfig {
         Self {
             fuel_limit: 1_000_000,
             timeout: Duration::from_secs(30),
+            compile_timeout: Duration::from_secs(DEFAULT_COMPILE_TIMEOUT_SECS),
+            max_source_bytes: DEFAULT_MAX_SOURCE_BYTES,
+            max_module_bytes: DEFAULT_MAX_MODULE_BYTES,
+            max_memory_bytes: DEFAULT_MAX_MEMORY_BYTES,
+            max_table_elements: DEFAULT_MAX_TABLE_ELEMENTS,
         }
     }
+}
+
+struct WasmStoreState {
+    limits: StoreLimits,
 }
 
 /// Result of genuine WASM execution, or an announced refusal when the input has
@@ -112,6 +161,7 @@ pub struct WasmExecutor {
 
 impl WasmExecutor {
     pub fn new(config: WasmConfig) -> Result<Self> {
+        config.validate()?;
         let mut engine_config = wasmtime::Config::new();
         engine_config.epoch_interruption(true);
         // Requis pour que Store::set_fuel fonctionne : sans cette option,
