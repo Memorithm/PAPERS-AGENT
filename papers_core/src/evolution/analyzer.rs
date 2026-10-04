@@ -14,7 +14,8 @@ Motivation: {motivation}
 
 ## Experimental Results
 Score: {score}
-Success: {success}
+Stage success: {success}
+Evaluation authority: {authority}
 Metrics: {metrics}
 Runtime: {runtime_seconds}s
 
@@ -25,7 +26,10 @@ Analyze the experimental results above and produce a JSON object with:
 - \"weaknesses\": List of what failed or underperformed.
 - \"root_cause\": Your hypothesis for WHY the result turned out this way.
 - \"actionable_insights\": Specific suggestions for the next iteration.
-- \"novelty_assessment\": Score 0-10 and brief justification.";
+- \"novelty_assessment\": Score 0-10 and brief justification.
+
+A runtime or structural diagnostic is not empirical validation of task correctness.
+Only task_oracle authority may be interpreted as empirical success.";
 
 /// Structured output from the Analyzer.
 pub struct AnalysisOutput {
@@ -72,6 +76,7 @@ impl Analyzer {
             )
             .replace("{score}", &result.score.to_string())
             .replace("{success}", &result.success.to_string())
+            .replace("{authority}", result.authority.as_str())
             .replace(
                 "{metrics}",
                 &metrics_str.chars().take(1500).collect::<String>(),
@@ -135,13 +140,16 @@ impl Analyzer {
 
     /// Let the Analyzer store its output in cognition for future rounds.
     fn heuristic_analysis(result: &EngineerOutput) -> AnalysisOutput {
+        let status = if result.is_empirically_validated() {
+            "was validated by the task oracle"
+        } else if result.success {
+            "completed a diagnostic stage without establishing task correctness"
+        } else {
+            "failed"
+        };
         let summary = format!(
-            "Experiment {} with score {:.4}. {}",
-            if result.success {
-                "succeeded"
-            } else {
-                "failed"
-            },
+            "Evaluation {status} (authority={}, score {:.4}). {}",
+            result.authority.as_str(),
             result.score,
             result.error.as_deref().unwrap_or("No errors reported.")
         );
@@ -157,8 +165,10 @@ impl Analyzer {
 
         AnalysisOutput {
             summary,
-            strengths: if result.success {
-                vec!["Execution completed".into()]
+            strengths: if result.is_empirically_validated() {
+                vec!["Task oracle accepted the candidate".into()]
+            } else if result.success {
+                vec!["Diagnostic stage completed".into()]
             } else {
                 vec![]
             },
