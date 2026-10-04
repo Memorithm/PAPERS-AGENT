@@ -496,9 +496,9 @@ pub fn run() {
     fn test_adapter_selection() {
         // main déjà exporté → pas d'adaptateur.
         let exported = "#[no_mangle]\npub extern \"C\" fn main() {}";
-        assert_eq!(adapter_for(exported), "");
+        assert_eq!(adapter_for(exported).unwrap(), "");
         // Convention run() → adaptateur appelant run.
-        assert!(adapter_for("pub fn run() {}").contains("run();"));
+        assert!(adapter_for("pub fn run() {}").unwrap().contains("run();"));
         // Sinon → refus explicite, jamais de `main` vide.
         assert!(matches!(
             adapter_for("pub fn foo() {}"),
