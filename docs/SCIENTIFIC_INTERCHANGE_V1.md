@@ -110,7 +110,7 @@ cargo run --bin papers-contract -- \
 
 ## Empirical evaluation boundary
 
-`WasmExecutor::execute` still executes genuine WASM with Wasmtime fuel and epoch deadlines.
+`WasmExecutor::execute_trusted_wasm` still executes genuine WASM with Wasmtime fuel and epoch deadlines.
 
 `WasmExecutor::execute_rust_source` validates the source-size budget and requires an explicit PAPERS entrypoint, then **fails closed before launching local rustc**. Generated or third-party Rust must cross the external SciRust-Hub/RemoteOps OS-isolated runtime boundary. The crate retains a deliberately named trusted-only local compiler helper for maintainer diagnostics; it is not the generated-code execution path.
 
