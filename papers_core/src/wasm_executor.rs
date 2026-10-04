@@ -343,9 +343,9 @@ impl WasmExecutor {
 
     /// Refuse to pretend that Rust source text was executed.
     ///
-    /// PAPERS may still generate Rust candidates, but empirical evaluation must
-    /// be delegated to a real compiler/evaluator (RSI/CCOS Research Lab) or the
-    /// caller must explicitly compile the program to WASM and call [`Self::execute`].
+    /// PAPERS may still generate Rust candidates, but generated or third-party
+    /// source must be delegated to the external OS-isolated SciRust-Hub/RemoteOps
+    /// compiler/evaluator. This public path never launches local rustc.
     pub fn execute_rust_source(&self, source: &str) -> Result<WasmResult> {
         let start = Instant::now();
         if source.len() > self.config.max_source_bytes {
