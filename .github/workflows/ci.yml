@@ -83,6 +83,14 @@ jobs:
         with:
           tool: cargo-audit
 
+      # Temporary audit-branch diagnostic: materialize the patched lockfile
+      # so its exact diff can be captured, committed, then this step removed.
+      - name: Materialize patched Wasmtime lockfile
+        working-directory: papers_core
+        run: |
+          cargo update -p wasmtime --precise 48.0.5
+          git diff -- Cargo.lock
+
       - name: Security audit
         working-directory: papers_core
         run: cargo audit
