@@ -112,9 +112,11 @@ cargo run --bin papers-contract -- \
 
 `WasmExecutor::execute` still executes genuine WASM with Wasmtime fuel and epoch deadlines.
 
-`WasmExecutor::execute_rust_source` compiles only candidates with an explicit PAPERS entrypoint: either an exported `main: () -> ()` or a zero-argument `run()` adapted to that export. Helper-only source is refused; PAPERS never fabricates an empty `main` to turn compilation into execution.
+`WasmExecutor::execute_rust_source` validates the source-size budget and requires an explicit PAPERS entrypoint, then **fails closed before launching local rustc**. Generated or third-party Rust must cross the external SciRust-Hub/RemoteOps OS-isolated runtime boundary. The crate retains a deliberately named trusted-only local compiler helper for maintainer diagnostics; it is not the generated-code execution path.
 
-Compilation success and Wasmtime runtime success are **diagnostic evidence only**. They record runtime status, fuel consumed and duration, but produce zero empirical fitness. The evolution loop may rank a candidate only after an explicit task evaluator establishes `task_oracle` authority. Structural checks likewise remain diagnostic. This prevents execution success, larger fuel consumption, or code shape from being silently promoted into task correctness.
+The local Wasmtime path applies a module byte limit plus fuel/epoch deadlines and `StoreLimits` for memories, tables and instance counts. Those controls bound the in-process diagnostic path; they are not presented as an OS hostile-code sandbox or as a bound on all JIT/compiler memory. Untrusted JIT execution therefore still belongs behind the external qualified runtime.
+
+Compilation success and Wasmtime runtime success are **diagnostic evidence only**. They record runtime status, fuel consumed and duration, but produce zero empirical fitness. The evolution loop may rank a candidate only after an explicit task evaluator establishes `task_oracle` authority. Structural checks likewise remain diagnostic.
 
 For repository improvements the preferred empirical path is RSI/CCOS Research Lab:
 
