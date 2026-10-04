@@ -428,6 +428,7 @@ impl WasmExecutor {
             .arg("-o")
             .arg(&output_path)
             .arg(&src_path)
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn();
 
@@ -438,35 +439,42 @@ impl WasmExecutor {
             }
             Err(e) => return Err(CompileToWasmError::Io(format!("lancement rustc: {e}"))),
         };
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| CompileToWasmError::Io("stderr rustc indisponible".into()))?;
+        let stderr_reader = spawn_bounded_stderr_reader(stderr);
 
-        // Attente bornée pour ne jamais bloquer le moteur sur un rustc récalcitrant.
-        let deadline = Instant::now() + Duration::from_secs(RUSTC_TIMEOUT_SECS);
+        // Drain stderr concurrently so a noisy compiler cannot deadlock on a
+        // full pipe. Only a bounded diagnostic prefix is retained.
+        let deadline = Instant::now() + self.config.compile_timeout;
         let status = loop {
             match child.try_wait() {
-                Ok(Some(st)) => break Some(st),
+                Ok(Some(st)) => break st,
                 Ok(None) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(25));
                 }
                 Ok(None) => {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = join_stderr(stderr_reader);
                     return Err(CompileToWasmError::Compilation(format!(
-                        "rustc a dépassé le délai de {RUSTC_TIMEOUT_SECS}s"
+                        "rustc a dépassé le délai de {} ms",
+                        self.config.compile_timeout.as_millis()
                     )));
                 }
-                Err(e) => return Err(CompileToWasmError::Io(format!("attente rustc: {e}"))),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = join_stderr(stderr_reader);
+                    return Err(CompileToWasmError::Io(format!("attente rustc: {e}")));
+                }
             }
         };
-        let Some(status) = status else {
-            return Err(CompileToWasmError::Io("statut rustc inconnu".into()));
-        };
+        let stderr = join_stderr(stderr_reader)?;
+        let stderr = String::from_utf8_lossy(&stderr);
 
         if !status.success() {
-            let mut stderr = String::new();
-            if let Some(mut pipe) = child.stderr.take() {
-                use std::io::Read;
-                let _ = pipe.read_to_string(&mut stderr);
-            }
             if stderr.contains("E0463")
                 || stderr.to_lowercase().contains("target")
                     && stderr.to_lowercase().contains("not installed")
@@ -483,6 +491,14 @@ impl WasmExecutor {
             ));
         }
 
+        let metadata = std::fs::metadata(&output_path)
+            .map_err(|e| CompileToWasmError::Io(format!("métadonnées WASM: {e}")))?;
+        if metadata.len() > u64::try_from(self.config.max_module_bytes).unwrap_or(u64::MAX) {
+            return Err(CompileToWasmError::Compilation(format!(
+                "module WASM produit dépasse la limite de {} octets",
+                self.config.max_module_bytes
+            )));
+        }
         let bytes = std::fs::read(&output_path)
             .map_err(|e| CompileToWasmError::Io(format!("lecture WASM: {e}")))?;
         if !Self::validate_wasm(&bytes) {
