@@ -372,20 +372,35 @@ impl WasmExecutor {
             });
         }
 
-        match self.compile_source_to_wasm(source) {
-            Ok(wasm_bytes) => self.execute(&wasm_bytes),
-            Err(e) => Ok(WasmResult {
+        if let Err(error) = adapter_for(source) {
+            return Ok(WasmResult {
                 success: false,
                 output: String::new(),
-                error: Some(e.message()),
+                error: Some(error.message()),
                 fuel_consumed: 0,
                 duration_ms: start.elapsed().as_millis() as u64,
-            }),
+            });
         }
+
+        Ok(WasmResult {
+            success: false,
+            output: String::new(),
+            error: Some(
+                "untrusted Rust compilation requires the external OS-isolated SciRust-Hub/RemoteOps runtime; local rustc execution is disabled"
+                    .into(),
+            ),
+            fuel_consumed: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
+        })
     }
 
-    /// Compile réellement un source Rust vers WASM (`wasm32-unknown-unknown`)
-    /// pour exécution sandboxée par [`Self::execute`].
+    /// Compile localement un source Rust vers WASM (`wasm32-unknown-unknown`).
+    ///
+    /// This helper is crate-private and must not be used for generated or
+    /// third-party source. Production untrusted compilation is deliberately
+    /// refused by [`Self::execute_rust_source`] until the external qualified
+    /// SciRust-Hub/RemoteOps boundary is wired.
+    ///
     ///
     /// Convention d'entrée :
     /// - le source exporte déjà `#[no_mangle] pub extern "C" fn main()` → il
@@ -394,7 +409,7 @@ impl WasmExecutor {
     ///   `run` depuis `main` ;
     /// - sinon → la compilation est refusée : PAPERS ne fabrique jamais un
     ///   `main` vide pour transformer un helper en exécution réussie.
-    pub fn compile_source_to_wasm(
+    fn compile_source_to_wasm(
         &self,
         source: &str,
     ) -> std::result::Result<Vec<u8>, CompileToWasmError> {
