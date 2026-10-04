@@ -658,9 +658,90 @@ pub fn run() {
     }
 
     #[test]
+    fn test_module_byte_limit_fails_before_wasmtime_compile() {
+        let executor = WasmExecutor::new(WasmConfig {
+            max_module_bytes: 4,
+            ..WasmConfig::default()
+        })
+        .unwrap();
+        let result = executor.execute(&[0_u8; 5]).unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("module exceeds"));
+    }
+
+    #[test]
+    fn test_source_byte_limit_fails_before_rustc() {
+        let executor = WasmExecutor::new(WasmConfig {
+            max_source_bytes: 8,
+            ..WasmConfig::default()
+        })
+        .unwrap();
+        let result = executor.execute_rust_source("pub fn run() {}").unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("source exceeds"));
+    }
+
+    #[test]
+    fn test_store_memory_limit_rejects_oversized_initial_memory() {
+        let executor = WasmExecutor::new(WasmConfig {
+            max_memory_bytes: 64 * 1024,
+            ..WasmConfig::default()
+        })
+        .unwrap();
+        let result = executor
+            .execute(br#"(module (memory 2) (func (export "main")))"#)
+            .unwrap();
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Instantiation failed"))
+        );
+    }
+
+    #[test]
+    fn test_store_table_limit_rejects_oversized_initial_table() {
+        let executor = WasmExecutor::new(WasmConfig {
+            max_table_elements: 2,
+            ..WasmConfig::default()
+        })
+        .unwrap();
+        let result = executor
+            .execute(br#"(module (table 10 funcref) (func (export "main")))"#)
+            .unwrap();
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Instantiation failed"))
+        );
+    }
+
+    #[test]
+    fn test_zero_resource_budget_is_rejected() {
+        let error = WasmExecutor::new(WasmConfig {
+            max_memory_bytes: 0,
+            ..WasmConfig::default()
+        })
+        .err()
+        .expect("zero memory budget must fail");
+        assert!(error.to_string().contains("max_memory_bytes"));
+    }
+
+    #[test]
     fn test_config_defaults() {
         let cfg = WasmConfig::default();
         assert_eq!(cfg.fuel_limit, 1_000_000);
         assert_eq!(cfg.timeout, Duration::from_secs(30));
+        assert_eq!(
+            cfg.compile_timeout,
+            Duration::from_secs(DEFAULT_COMPILE_TIMEOUT_SECS)
+        );
+        assert_eq!(cfg.max_source_bytes, DEFAULT_MAX_SOURCE_BYTES);
+        assert_eq!(cfg.max_module_bytes, DEFAULT_MAX_MODULE_BYTES);
+        assert_eq!(cfg.max_memory_bytes, DEFAULT_MAX_MEMORY_BYTES);
+        assert_eq!(cfg.max_table_elements, DEFAULT_MAX_TABLE_ELEMENTS);
     }
 }
