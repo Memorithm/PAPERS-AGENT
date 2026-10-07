@@ -31,7 +31,7 @@ pub trait SourceExtractor: Send + Sync {
 // ── Extracteur arXiv ────────────────────────────────────────────
 
 pub struct ArxivExtractor {
-    client: reqwest::blocking::Client,
+    client: Result<reqwest::blocking::Client, String>,
 }
 
 impl Default for ArxivExtractor {
@@ -43,7 +43,7 @@ impl Default for ArxivExtractor {
 impl ArxivExtractor {
     pub fn new() -> Self {
         Self {
-            client: reqwest::blocking::Client::new(),
+            client: crate::arxiv_http::client(),
         }
     }
 
@@ -78,17 +78,18 @@ impl SourceExtractor for ArxivExtractor {
         info!("Extraction arXiv: {}", paper_id);
 
         let url = format!(
-            "http://export.arxiv.org/api/query?search_query=id:{}&max_results=1",
+            "{}?search_query=id:{}&max_results=1",
+            crate::arxiv_http::API_URL,
             paper_id
         );
         let resp = self
             .client
+            .as_ref()
+            .map_err(Clone::clone)?
             .get(&url)
             .send()
             .map_err(|e| format!("Erreur HTTP arXiv: {}", e))?;
-        let body = resp
-            .text()
-            .map_err(|e| format!("Erreur lecture arXiv: {}", e))?;
+        let body = crate::arxiv_http::read_response(resp)?;
 
         // Parsing XML basique de la réponse arXiv API
         let title = extract_xml_tag(&body, "title").unwrap_or_else(|| paper_id.clone());
@@ -132,21 +133,18 @@ pub fn search_arxiv_latest(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<ExtractedDocument>, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("client HTTP: {e}"))?;
+    let client = crate::arxiv_http::client()?;
     let url = format!(
-        "http://export.arxiv.org/api/query?search_query=all:{}&sortBy=submittedDate&sortOrder=descending&max_results={}",
+        "{}?search_query=all:{}&sortBy=submittedDate&sortOrder=descending&max_results={}",
+        crate::arxiv_http::API_URL,
         urlencode(query),
         max_results
     );
-    let body = client
+    let response = client
         .get(&url)
         .send()
-        .map_err(|e| format!("Erreur HTTP arXiv: {e}"))?
-        .text()
-        .map_err(|e| format!("Erreur lecture arXiv: {e}"))?;
+        .map_err(|e| format!("Erreur HTTP arXiv: {e}"))?;
+    let body = crate::arxiv_http::read_response(response)?;
 
     Ok(parse_arxiv_feed(&body))
 }
