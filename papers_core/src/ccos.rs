@@ -76,6 +76,7 @@ impl LabClient {
         Self {
             http: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("HTTP client"),
             base_url: base_url.into(),
@@ -91,14 +92,17 @@ impl LabClient {
         self
     }
 
-    /// Ajuste la politique de retry transport/5xx.
+    /// Ajuste les retries transport/5xx des lectures GET uniquement.
+    /// La soumission POST n'est jamais rejouée sans contrat serveur d'idempotence.
     pub fn with_retry(mut self, attempts: u32, backoff_ms: u64) -> Self {
         self.retry_attempts = attempts;
         self.retry_backoff_ms = backoff_ms;
         self
     }
 
-    /// Soumet un bundle scientifique ; retourne l'accusé avec son identifiant.
+    /// Soumet une fois un bundle ; retourne un accusé valide ou une erreur.
+    /// `unknown_outcome:` signifie que le lab a pu accepter la soumission :
+    /// réconcilier son état, ne pas rejouer le POST.
     pub fn submit_experiment(&self, bundle: &serde_json::Value) -> Result<Submission, String> {
         let data = self.send(
             reqwest::Method::POST,
@@ -107,10 +111,11 @@ impl LabClient {
         )?;
         let id = data["id"]
             .as_str()
-            .ok_or("réponse de soumission sans champ 'id'")?
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| unknown_outcome("accusé sans identifiant d'expérience valide"))?
             .to_string();
-        let state =
-            serde_json::from_value(data["state"].clone()).unwrap_or(ExperimentState::Queued);
+        let state = serde_json::from_value(data["state"].clone())
+            .map_err(|e| unknown_outcome(format!("état illisible pour l'expérience {id}: {e}")))?;
         Ok(Submission { id, state })
     }
 
@@ -164,7 +169,12 @@ impl LabClient {
         url: &str,
         body: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value, String> {
-        let attempts = self.retry_attempts.saturating_add(1);
+        let submission = method == reqwest::Method::POST;
+        let attempts = if method == reqwest::Method::GET {
+            self.retry_attempts.saturating_add(1)
+        } else {
+            1
+        };
         let mut last_err = String::new();
 
         for attempt in 0..attempts {
@@ -193,6 +203,9 @@ impl LabClient {
             match request.send() {
                 Ok(response) => {
                     let status = response.status();
+                    if submission && !status.is_success() {
+                        return Err(unknown_outcome(format!("statut {status} reçu du lab")));
+                    }
                     if status.is_server_error() {
                         last_err = format!("erreur serveur ({status})");
                         continue;
@@ -200,9 +213,16 @@ impl LabClient {
                     if !status.is_success() {
                         return Err(format!("requête rejetée ({status}) par {url}"));
                     }
-                    return response
-                        .json()
-                        .map_err(|e| format!("réponse non-JSON de {url}: {e}"));
+                    return response.json().map_err(|e| {
+                        if submission {
+                            unknown_outcome(format!("accusé non-JSON ou perdu: {e}"))
+                        } else {
+                            format!("réponse non-JSON de {url}: {e}")
+                        }
+                    });
+                }
+                Err(e) if submission => {
+                    return Err(unknown_outcome(format!("transport sans accusé: {e}")));
                 }
                 Err(e) => last_err = e.to_string(),
             }
@@ -212,6 +232,10 @@ impl LabClient {
             "échec après {attempts} tentative(s) vers {url}: {last_err}"
         ))
     }
+}
+
+fn unknown_outcome(reason: impl std::fmt::Display) -> String {
+    format!("unknown_outcome: {reason}; ne pas rejouer la soumission; réconcilier via papers-lab reconcile avec l'identifiant du lab, ou ses journaux si l'identifiant est inconnu")
 }
 
 #[cfg(test)]
@@ -350,8 +374,111 @@ mod tests {
         ];
         let addr = spawn_mock(responses);
         let client = client_at(&addr).with_retry(2, 1);
-        let sub = client.submit_experiment(&serde_json::json!({})).unwrap();
-        assert_eq!(sub.id, "r");
+        let status = client.experiment_status("r").unwrap();
+        assert_eq!(status.id, "r");
+    }
+
+    // Simulates a lab that may have committed the first submission. If a
+    // second POST arrives, it answers successfully; the probe counts it.
+    fn submission_probe(
+        first_response: Option<&'static str>,
+    ) -> (
+        String,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        std::thread::JoinHandle<()>,
+    ) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        listener.set_nonblocking(true).unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let server_count = count.clone();
+        let handle = std::thread::spawn(move || {
+            let mut deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(pair) => pair,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(e) => panic!("probe: {e}"),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request_line = String::new();
+                reader.read_line(&mut request_line).unwrap();
+                assert!(request_line.starts_with("POST /api/v1/experiments "));
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap() == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse::<usize>().unwrap();
+                    }
+                }
+                assert!(len < 4096, "fixture request budget");
+                reader.read_exact(&mut vec![0; len]).unwrap();
+                let ordinal = server_count.fetch_add(1, Ordering::SeqCst);
+                let response = if ordinal == 0 {
+                    first_response
+                } else {
+                    Some("HTTP/1.1 201 Created\r\nContent-Length: 27\r\nConnection: close\r\n\r\n{\"id\":\"r\",\"state\":\"queued\"}")
+                };
+                if let Some(response) = response {
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                stream.shutdown(std::net::Shutdown::Write).ok();
+                deadline = Instant::now() + Duration::from_millis(250);
+            }
+        });
+        (addr, count, handle)
+    }
+
+    fn assert_submission_not_replayed(response: Option<&'static str>) {
+        let (addr, count, handle) = submission_probe(response);
+        let error = client_at(&addr)
+            .with_retry(3, 1)
+            .submit_experiment(&serde_json::json!({"claim":"fixture"}))
+            .unwrap_err();
+        handle.join().unwrap();
+        assert!(error.starts_with("unknown_outcome:"), "{error}");
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn submission_5xx_is_unknown_and_never_retried() {
+        assert_submission_not_replayed(Some(
+            "HTTP/1.1 500 Error\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        ));
+    }
+
+    #[test]
+    fn committed_submission_with_lost_ack_is_never_retried() {
+        assert_submission_not_replayed(None);
+    }
+
+    #[test]
+    fn malformed_submission_ack_is_unknown_not_fake_queued_success() {
+        assert_submission_not_replayed(Some(
+            "HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        ));
+        assert_submission_not_replayed(Some(
+            "HTTP/1.1 201 Created\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{\"id\":\"x\"}",
+        ));
+    }
+
+    #[test]
+    fn submission_redirect_is_not_followed() {
+        assert_submission_not_replayed(Some("HTTP/1.1 307 Redirect\r\nLocation: /api/v1/experiments\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
     }
 
     #[test]
