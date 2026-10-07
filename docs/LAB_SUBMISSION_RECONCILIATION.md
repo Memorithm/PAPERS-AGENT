@@ -1,9 +1,11 @@
 # Submission outcomes and read-only reconciliation
 
 `LabClient::submit_experiment` sends one POST only. `with_retry` applies to
-GET status/result reads, not submissions. HTTP redirects are disabled: a 307
+GET status/result reads, not submissions. POST redirects are disabled: a 307
 must not secretly replay the POST elsewhere. PAPERS does not pretend that an
 idempotency header alone implements server-side durable deduplication.
+Read-only GET requests retain the existing bounded default redirect policy,
+so canonical-host or HTTP-to-HTTPS redirects do not break reconciliation.
 
 A transport failure, non-2xx response, lost/non-JSON acknowledgement, empty
 ID or missing/invalid state returns an error prefixed `unknown_outcome:`.

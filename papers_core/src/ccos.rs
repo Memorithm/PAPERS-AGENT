@@ -64,6 +64,7 @@ pub struct ExperimentStatus {
 /// Client HTTP du CCOS Research Lab.
 pub struct LabClient {
     http: reqwest::blocking::Client,
+    http_read: reqwest::blocking::Client,
     base_url: String,
     api_key: Option<String>,
     retry_attempts: u32,
@@ -79,6 +80,10 @@ impl LabClient {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("HTTP client"),
+            http_read: reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("HTTP read client"),
             base_url: base_url.into(),
             api_key: None,
             retry_attempts: 2,
@@ -192,7 +197,12 @@ impl LabClient {
                 std::thread::sleep(Duration::from_millis(backoff));
             }
 
-            let mut request = self.http.request(method.clone(), url);
+            let http = if submission {
+                &self.http
+            } else {
+                &self.http_read
+            };
+            let mut request = http.request(method.clone(), url);
             if let Some(ref key) = self.api_key {
                 request = request.header("Authorization", format!("Bearer {}", key));
             }
@@ -479,6 +489,75 @@ mod tests {
     #[test]
     fn submission_redirect_is_not_followed() {
         assert_submission_not_replayed(Some("HTTP/1.1 307 Redirect\r\nLocation: /api/v1/experiments\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+    }
+
+    #[test]
+    fn status_and_result_gets_preserve_redirects() {
+        for result in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let addr = listener.local_addr().unwrap().to_string();
+            let server = std::thread::spawn(move || {
+                for ordinal in 0..2 {
+                    let deadline = Instant::now() + Duration::from_secs(3);
+                    let mut stream = loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => break stream,
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(Instant::now() < deadline, "missing GET redirect request");
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            Err(e) => panic!("accept: {e}"),
+                        }
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut first = String::new();
+                    reader.read_line(&mut first).unwrap();
+                    let path = if ordinal == 1 {
+                        "/canonical/x"
+                    } else if result {
+                        "/api/v1/experiments/x/result"
+                    } else {
+                        "/api/v1/experiments/x"
+                    };
+                    assert_eq!(first.trim(), format!("GET {path} HTTP/1.1"));
+                    let mut header_bytes = first.len();
+                    loop {
+                        let mut line = String::new();
+                        let read = reader.read_line(&mut line).unwrap();
+                        header_bytes += read;
+                        assert!(header_bytes < 16384, "fixture header budget");
+                        if read == 0 || line.trim().is_empty() {
+                            break;
+                        }
+                    }
+                    let response = if ordinal == 0 {
+                        "HTTP/1.1 302 Found\r\nLocation: /canonical/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                    } else {
+                        let body = r#"{"id":"x","state":"completed"}"#;
+                        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+                    };
+                    stream.write_all(response.as_bytes()).unwrap();
+                    stream.shutdown(std::net::Shutdown::Write).unwrap();
+                }
+            });
+            let client = client_at(&addr);
+            if result {
+                assert_eq!(client.experiment_result("x").unwrap()["id"], "x");
+            } else {
+                assert_eq!(
+                    client.experiment_status("x").unwrap().state,
+                    ExperimentState::Completed
+                );
+            }
+            server.join().unwrap();
+        }
     }
 
     #[test]
