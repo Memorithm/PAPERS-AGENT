@@ -1,4 +1,5 @@
 pub mod analysis;
+mod arxiv_http;
 pub mod ccos;
 pub mod cli;
 pub mod cognition;
