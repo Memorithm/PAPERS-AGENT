@@ -15,6 +15,9 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         qualification_manifest: PathBuf::from(required(
             "PAPERS_HUB_GVISOR_QUALIFICATION",
         )),
+        qualification_receipt: PathBuf::from(required(
+            "PAPERS_HUB_GVISOR_QUALIFICATION_RECEIPT",
+        )),
         image: required("PAPERS_HUB_GVISOR_IMAGE"),
         cpu_millis: 1000,
         memory_bytes: 512 * 1024 * 1024,
