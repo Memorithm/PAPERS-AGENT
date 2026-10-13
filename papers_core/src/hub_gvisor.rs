@@ -229,14 +229,18 @@ impl HubGvisorExecutor {
             !stdout_truncated && !stderr_truncated,
             "SciRust Hub adapter output exceeded PAPERS bounds"
         );
-        let receipt: ReceiptV1 =
-            serde_json::from_slice(&stdout).context("parse SciRust Hub execution receipt")?;
+        let outer_stderr = String::from_utf8_lossy(&stderr);
+        let receipt: ReceiptV1 = serde_json::from_slice(&stdout).with_context(|| {
+            format!("parse SciRust Hub execution receipt; adapter stderr: {outer_stderr}")
+        })?;
         ensure!(
             receipt.schema == RECEIPT_SCHEMA_V1
                 && receipt.task_id == task_id
                 && receipt.backend_id == "docker-runsc"
                 && receipt.isolation == "userspace_kernel"
-                && receipt.isolation_evidence_id.as_deref() == Some(&expected_evidence_id),
+                && receipt.isolation_evidence_id.as_deref() == Some(&expected_evidence_id)
+                && !receipt.stdout_truncated
+                && !receipt.stderr_truncated,
             "SciRust Hub receipt violates the qualified isolation contract"
         );
         ensure!(
