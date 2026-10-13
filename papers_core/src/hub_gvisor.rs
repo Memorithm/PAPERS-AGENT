@@ -175,7 +175,7 @@ impl HubGvisorExecutor {
             workspace: workspace.path().to_path_buf(),
             command: vec![
                 "bash".to_owned(),
-                "-lc".to_owned(),
+                "-c".to_owned(),
                 "rustc main.rs -o candidate && ./candidate".to_owned(),
             ],
             environment: vec![
