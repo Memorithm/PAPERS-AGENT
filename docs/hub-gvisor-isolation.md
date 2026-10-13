@@ -1,0 +1,9 @@
+# Qualified Hub gVisor execution
+
+PAPERS sends untrusted Rust candidates through the typed SciRust Hub gVisor adapter. The boundary uses Docker with the `runsc` runtime, a digest-pinned image, no network, a read-only root filesystem, dropped capabilities, an executor-owned workspace, and explicit CPU, memory, PID, wall-clock, source, and output bounds.
+
+The production consumer is pinned to SciRust Hub commit `60f000d9a4f021cb14b9fe2cd68999408b797dd8`. That revision passed Hub CI and the real gVisor qualification run [38469040003](https://github.com/Memorithm/scirust-hub/actions/runs/38469040003). PAPERS retains both the qualification manifest and the exact receipt whose SHA-256 is `43f3ceb7f20322cb7eafb7537f7d3baa7ea63bf4d1384477479ac63fb0fc68e7`.
+
+The client passes both retained artifacts to the exact Hub binary. Hub refuses to claim qualified isolation unless the compile-time source commit matches the manifest, the receipt hash matches, and the receipt proves a successful real runsc probe. PAPERS then validates the versioned execution receipt and its immutable evidence identifier before accepting the result.
+
+The dedicated GitHub Actions workflow rebuilds that exact Hub commit, installs the checksum-pinned gVisor release, and runs the ignored live integration test. Ordinary unit tests use a bounded fake adapter and never claim real isolation.
