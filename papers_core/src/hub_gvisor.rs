@@ -1,4 +1,5 @@
 //! Typed PAPERS consumer for the qualified SciRust Hub gVisor boundary.
+//! Qualification is rechecked by the exact Hub binary before every execution.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
