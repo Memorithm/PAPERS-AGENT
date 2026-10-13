@@ -20,6 +20,7 @@ pub struct HubGvisorConfig {
     pub executable: PathBuf,
     pub workspace_root: PathBuf,
     pub qualification_manifest: PathBuf,
+    pub qualification_receipt: PathBuf,
     pub image: String,
     pub cpu_millis: u64,
     pub memory_bytes: u64,
@@ -200,6 +201,7 @@ impl HubGvisorExecutor {
             .arg(&request_path)
             .arg(&workspace_root)
             .arg(&self.config.qualification_manifest)
+            .arg(&self.config.qualification_receipt)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -344,6 +346,7 @@ mod tests {
             executable,
             workspace_root,
             qualification_manifest: manifest,
+            qualification_receipt: root.path().join("receipt.json"),
             image: format!("rust@sha256:{}", "c".repeat(64)),
             cpu_millis: 1000,
             memory_bytes: 512 * 1024 * 1024,
@@ -371,6 +374,7 @@ mod tests {
             executable: root.path().join("hub"),
             workspace_root: root.path().to_path_buf(),
             qualification_manifest: root.path().join("qualification.json"),
+            qualification_receipt: root.path().join("receipt.json"),
             image: "rust:latest".to_owned(),
             cpu_millis: 1000,
             memory_bytes: 512 * 1024 * 1024,
