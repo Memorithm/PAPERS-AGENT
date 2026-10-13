@@ -16,6 +16,7 @@ pub mod extraction;
 pub mod falsification;
 pub mod gpu;
 pub mod graph;
+pub mod hub_gvisor;
 pub mod llm;
 pub mod llm_analyzer;
 pub mod metrics_server;
