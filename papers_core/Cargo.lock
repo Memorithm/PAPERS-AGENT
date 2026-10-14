@@ -1337,7 +1337,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 [[package]]
 name = "hub-core"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881#a1ce544d5a6027a224627b738268214775a56881"
 dependencies = [
  "serde",
  "serde_json",
@@ -1350,7 +1350,7 @@ dependencies = [
 [[package]]
 name = "hub-executor"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881#a1ce544d5a6027a224627b738268214775a56881"
 dependencies = [
  "axum",
  "hub-core",
@@ -1368,7 +1368,7 @@ dependencies = [
 [[package]]
 name = "hub-protocol"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881#a1ce544d5a6027a224627b738268214775a56881"
 dependencies = [
  "hub-core",
  "serde",
@@ -1379,7 +1379,7 @@ dependencies = [
 [[package]]
 name = "hub-store-sqlite"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881#a1ce544d5a6027a224627b738268214775a56881"
 dependencies = [
  "hub-core",
  "rusqlite",

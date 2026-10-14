@@ -315,6 +315,11 @@ mod tests {
         HubGvisorConfig {
             executable: root.join("missing-owner"),
             workspace_root: root.to_path_buf(),
+            workspace_volume: root.join("volume"),
+            workspace_quota: hub_executor::gvisor::GvisorWorkspaceQuotaV1 {
+                max_bytes: 64 * 1024 * 1024,
+                max_inodes: 256,
+            },
             qualification_manifest: root.join("missing-qualification.json"),
             qualification_receipt: root.join("missing-receipt.json"),
             image: format!("rust@sha256:{}", "a".repeat(64)),
