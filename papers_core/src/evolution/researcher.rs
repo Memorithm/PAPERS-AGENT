@@ -24,12 +24,12 @@ const RESEARCHER_PROMPT: &str = "\
 4. Use only the Rust standard library
 5. Return ONLY valid JSON: {\"program\": \"...\", \"motivation\": \"...\"}
 6. The program field must contain the FULL source code as a string
-7. main() must call the candidate on an explicit bounded development example and print its output
+7. The FIRST statement of main() must call the declared candidate function on literal bounded development inputs (optionally let result = candidate(...)), then print its output
 8. This harness is a runtime diagnostic, NOT a task oracle or empirical fitness claim
 
 Respond with JSON:
 {\"motivation\": \"explain your approach in 1-2 sentences\", \
-\"program\": \"fn solve(input: &[i32]) -> Vec<i32> { input.to_vec() } fn main() { println!(\\\"{:?}\\\", solve(&[1, 2])); }\"}";
+\"program\": \"fn solve(input: &[i32]) -> Vec<i32> { input.to_vec() } fn main() { let result = solve(&[1, 2]); println!(\\\"{:?}\\\", result); }\"}";
 
 const DIFF_RESEARCHER_PROMPT: &str = "\
 ## Task Description
@@ -48,7 +48,7 @@ const DIFF_RESEARCHER_PROMPT: &str = "\
 
 ## Instructions
 You are modifying the parent program above. Produce localized, targeted changes. \
-Preserve an executable fn main() which calls the candidate on a bounded \
+Preserve an executable fn main() whose FIRST statement calls the declared candidate on literal bounded \
 development example; do not return a helper-only program or infer scientific \
 fitness from this diagnostic harness. \
 Respond as a JSON object with:
@@ -142,9 +142,67 @@ impl Researcher {
     }
 
     fn is_valid(program: &str) -> bool {
-        // This is only a protocol preflight, not Rust parsing or qualification.
-        // rustc still validates and executes the candidate inside the Hub sandbox.
-        program.contains("fn main(") || program.contains("fn main (")
+        // Conservative syntax preflight, not scientific qualification. The first
+        // statement must invoke a declared nonempty function, not mention it
+        // inside a comment, string, closure, branch or no-op macro.
+        if program.len() > 64 * 1024 {
+            return false;
+        }
+        let Ok(file) = syn::parse_file(program) else {
+            return false;
+        };
+        let functions: Vec<_> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Fn(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+        let Some(main) = functions
+            .iter()
+            .find(|function| function.sig.ident == "main")
+        else {
+            return false;
+        };
+        if !main.sig.inputs.is_empty() {
+            return false;
+        }
+        let call = match main.block.stmts.first() {
+            Some(syn::Stmt::Expr(syn::Expr::Call(call), _)) => call,
+            Some(syn::Stmt::Local(local)) => match local.init.as_ref() {
+                Some(init) if init.diverge.is_none() => match init.expr.as_ref() {
+                    syn::Expr::Call(call) => call,
+                    _ => return false,
+                },
+                _ => return false,
+            },
+            _ => return false,
+        };
+        let syn::Expr::Path(path) = call.func.as_ref() else {
+            return false;
+        };
+        let Some(name) = path.path.get_ident() else {
+            return false;
+        };
+        name != "main"
+            && functions
+                .iter()
+                .any(|function| function.sig.ident == *name && !function.block.stmts.is_empty())
+            && call.args.iter().all(Self::literal_probe_input)
+    }
+
+    fn literal_probe_input(expr: &syn::Expr) -> bool {
+        match expr {
+            syn::Expr::Lit(_) => true,
+            syn::Expr::Array(array) => array.elems.iter().all(Self::literal_probe_input),
+            syn::Expr::Tuple(tuple) => tuple.elems.iter().all(Self::literal_probe_input),
+            syn::Expr::Reference(reference) => Self::literal_probe_input(&reference.expr),
+            syn::Expr::Unary(unary) if matches!(&unary.op, syn::UnOp::Neg(_)) => {
+                Self::literal_probe_input(&unary.expr)
+            }
+            _ => false,
+        }
     }
 
     fn clean_program(program: &str) -> String {
@@ -449,7 +507,7 @@ impl MctsNode {
             "Monte Carlo Tree Search baseline" => "println!(\"{}\", MctsNode::new().ucb1(1, 1.0));",
             _ => "println!(\"{:?}\", solve(&[1, 2]));",
         };
-        let program = format!("{program}\n\nfn main() {{ {invocation} }}\n");
+        let program = format!("{program}\n\nfn development_probe() {{ {invocation} }}\nfn main() {{ development_probe(); }}\n");
 
         ResearcherOutput {
             motivation,
@@ -467,8 +525,26 @@ mod tests {
     fn helper_only_generation_is_not_an_executable_candidate() {
         assert!(!Researcher::is_valid("fn solve(x: i32) -> i32 { x }"));
         assert!(Researcher::is_valid(
-            "fn solve(x: i32) -> i32 { x } fn main() { println!(\"{}\", solve(1)); }"
+            "fn solve(x: i32) -> i32 { x } fn main() { let result = solve(1); println!(\"{}\", result); }"
         ));
+    }
+
+    #[test]
+    fn empty_noncalling_or_conditional_entrypoints_are_refused() {
+        for main in [
+            "fn main() {}",
+            "fn main() { println!(\"hello\"); }",
+            "fn main() { println!(\"solve(1)\"); }",
+            "fn main() { if false { solve(1); } }",
+            "fn main() { let _unused = || solve(1); }",
+            "fn main() { return; solve(1); }",
+            "fn main() { let _ = solve({ std::process::exit(0); }); }",
+        ] {
+            assert!(
+                !Researcher::is_valid(&format!("fn solve(x: i32) -> i32 {{ x }} {main}")),
+                "{main}"
+            );
+        }
     }
 
     #[test]
@@ -489,8 +565,9 @@ mod tests {
             assert!(output.program.contains(helper), "{task}");
             assert!(Researcher::is_valid(&output.program), "{task}");
             assert!(
-                output.program.contains("fn main() { println!")
-                    || output.program.contains("fn main() { let mut agent"),
+                output
+                    .program
+                    .contains("fn main() { development_probe(); }"),
                 "{task}"
             );
         }
