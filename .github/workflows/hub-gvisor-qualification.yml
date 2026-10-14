@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Memorithm/scirust-hub
-          ref: cf5233af12499605bd57d9d613b3cddc3bc39d08
+          ref: a1ce544d5a6027a224627b738268214775a56881
           path: scirust-hub
           persist-credentials: false
       - name: Install Rust
@@ -66,13 +66,23 @@ jobs:
           set -euo pipefail
           qualification=papers_core/qualification/hub-gvisor/qualification.json
           receipt=papers_core/qualification/hub-gvisor/receipt.json
-          test "$(jq -r .source_commit "$qualification")" = cf5233af12499605bd57d9d613b3cddc3bc39d08
-          test "$(jq -r .workflow_run_id "$qualification")" = 38517039600
+          test "$(jq -r .source_commit "$qualification")" = a1ce544d5a6027a224627b738268214775a56881
+          test "$(jq -r .workflow_run_id "$qualification")" = 38522621768
           test "$(jq -r .receipt_sha256 "$qualification")" = "$(sha256sum "$receipt" | cut -d' ' -f1)"
           archive=papers_core/qualification/hub-gvisor/owner-controls.zip
-          printf '%s  %s\n' '42436f60653968c1be42a198c625a9a22e690f1d569aecd2956699df3ae16eed' "$archive" | sha256sum --check -
+          printf '%s  %s\n' '6027dc5df69377f3df82337f3a68d6beb4804d171751f80cedb362d2fcebd89b' "$archive" | sha256sum --check -
           cmp <(unzip -p "$archive" qualification.json) "$qualification"
           cmp <(unzip -p "$archive" receipt.json) "$receipt"
+          unzip -p "$archive" gvisor-workspace-quota/summary.json \
+            | jq -e '.source_commit == "a1ce544d5a6027a224627b738268214775a56881" and .workflow_run_id == 38522621768 and .filesystem_image_bytes == 67108864 and .persistent_remount_positive and .bounded_multi_file_enospc and .bounded_inode_enospc and .nested_host_mount_refused_before_create and .journal_outside_guest_volume'
+          for pair in 'bytes:AGGREGATE_bytes_ENOSPC=13' 'inodes:AGGREGATE_inodes_ENOSPC=241'; do
+            name=${pair%:*}
+            marker=${pair#*:}
+            unzip -p "$archive" "gvisor-workspace-quota/$name.receipt.request.json" \
+              | jq -e '.workspace_quota.max_bytes == 67108864 and .workspace_quota.max_inodes == 256'
+            unzip -p "$archive" "gvisor-workspace-quota/$name.receipt.json" \
+              | jq -e --arg marker "$marker" '.exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains($marker))'
+          done
           # Retained owner observations, not a substitute for the live consumer.
           for pair in 'pid-limited:64' 'pid-positive-control:128'; do
             name=${pair%:*}
@@ -81,24 +91,24 @@ jobs:
               | jq -e --argjson budget "$budget" '.pids_limit == 512 and .guest_pids_limit == $budget and .timeout_ms == 15000'
           done
           unzip -p "$archive" gvisor-controls/pid-limited.receipt.json \
-            | jq -e '.task_id == "papers-01-38517039600-pid-limited" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,55,11") and contains("PID_UID=Uid:\t1001"))'
+            | jq -e '.task_id == "papers-01-38522621768-pid-limited" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,55,11") and contains("PID_UID=Uid:\t1001"))'
           unzip -p "$archive" gvisor-controls/pid-positive-control.receipt.json \
-            | jq -e '.task_id == "papers-01-38517039600-pid-positive-control" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,96,0") and contains("PID_UID=Uid:\t1001"))'
+            | jq -e '.task_id == "papers-01-38522621768-pid-positive-control" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,96,0") and contains("PID_UID=Uid:\t1001"))'
           # Exact retained real owner recovery facts, not scientific authority.
           unzip -p "$archive" gvisor-recovery/crash.json \
-            | jq -e '.before.task_id == "papers-01-38517039600-recovery-crash" and .before == .after and .before.state == "owned" and .daemon.running == true and .guest_entry_observed == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .before.owned_handle and .daemon.container_id == .before.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .before.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .before.request_sha256'
+            | jq -e '.before.task_id == "papers-01-38522621768-recovery-crash" and .before == .after and .before.state == "owned" and .daemon.running == true and .guest_entry_observed == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .before.owned_handle and .daemon.container_id == .before.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .before.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .before.request_sha256'
           unzip -p "$archive" gvisor-recovery/lost-response.json \
-            | jq -e '.reserved.task_id == "papers-01-38517039600-recovery-lost-response" and .reserved.state == "reserved" and .reserved.owned_handle == null and .owned.state == "owned" and .reserved.attempt_id == .owned.attempt_id and .daemon.running == false and .never_started == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .owned.owned_handle and .daemon.container_id == .owned.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .owned.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .owned.request_sha256'
+            | jq -e '.reserved.task_id == "papers-01-38522621768-recovery-lost-response" and .reserved.state == "reserved" and .reserved.owned_handle == null and .owned.state == "owned" and .reserved.attempt_id == .owned.attempt_id and .daemon.running == false and .never_started == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .owned.owned_handle and .daemon.container_id == .owned.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .owned.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .owned.request_sha256'
           imported_guard=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path papers_core/Cargo.toml \
             | jq -er '.packages[] | select(.name == "papers_core") | .dependencies[] | select(.name == "hub-executor") | .source')
-          test "$imported_guard" = 'git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08'
+          test "$imported_guard" = 'git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881'
           cargo metadata --locked --format-version 1 --manifest-path papers_core/Cargo.toml \
-            | jq -e --arg expected 'git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08' \
+            | jq -e --arg expected 'git+https://github.com/Memorithm/scirust-hub.git?rev=a1ce544d5a6027a224627b738268214775a56881#a1ce544d5a6027a224627b738268214775a56881' \
               '[.packages[] | select(.name == "hub-executor" or .name == "hub-core" or .name == "hub-protocol" or .name == "hub-store-sqlite")] | length == 4 and all(.[]; .source == $expected)'
       - name: Build exact Hub adapter
         working-directory: scirust-hub
         env:
-          SCIRUST_HUB_SOURCE_COMMIT: cf5233af12499605bd57d9d613b3cddc3bc39d08
+          SCIRUST_HUB_SOURCE_COMMIT: a1ce544d5a6027a224627b738268214775a56881
         run: cargo build --locked -p hub-executor --bin scirust-hub-gvisor
       - name: Execute PAPERS live consumer through runsc
         working-directory: papers_core
@@ -106,12 +116,21 @@ jobs:
         env:
           PAPERS_HUB_GVISOR_EXECUTABLE: ${{ github.workspace }}/scirust-hub/target/debug/scirust-hub-gvisor
           PAPERS_HUB_GVISOR_WORKSPACE_ROOT: ${{ runner.temp }}/papers-hub-workspaces
+          PAPERS_HUB_GVISOR_WORKSPACE_VOLUME: ${{ runner.temp }}/papers-hub-workspaces/quota-volume
           PAPERS_HUB_GVISOR_QUALIFICATION: ${{ github.workspace }}/papers_core/qualification/hub-gvisor/qualification.json
           PAPERS_HUB_GVISOR_QUALIFICATION_RECEIPT: ${{ github.workspace }}/papers_core/qualification/hub-gvisor/receipt.json
           PAPERS_HUB_GVISOR_IMAGE: rust@sha256:948f9b08a66e7fe01b03a98ef1c7568292e07ec2e4fe90d88c07bb14563c84ff
         run: |
           set -euo pipefail
           mkdir -p "$PAPERS_HUB_GVISOR_WORKSPACE_ROOT"
+          mkdir "$PAPERS_HUB_GVISOR_WORKSPACE_VOLUME"
+          image="$RUNNER_TEMP/papers-quota.img"
+          test ! -e "$image"
+          truncate --size=64M "$image"
+          timeout 30s mkfs.ext4 -F -q -m 0 -N 256 "$image"
+          timeout 30s sudo mount -o loop,nodev,nosuid "$image" "$PAPERS_HUB_GVISOR_WORKSPACE_VOLUME"
+          trap 'timeout 30s sudo umount "$PAPERS_HUB_GVISOR_WORKSPACE_VOLUME"' EXIT
+          timeout 30s sudo chown "$(id -u):$(id -g)" "$PAPERS_HUB_GVISOR_WORKSPACE_VOLUME"
           cargo test --locked --test hub_gvisor_live -- --ignored --exact executes_untrusted_rust_through_qualified_hub_gvisor --nocapture \
             | tee "$RUNNER_TEMP/papers-hub-gvisor-live.log"
       - name: Retain PAPERS live evidence

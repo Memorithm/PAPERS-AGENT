@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, ensure, Context, Result};
 use hub_executor::execution_guard::execute_guarded_command;
+use hub_executor::gvisor::GvisorWorkspaceQuotaV1;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -22,6 +23,10 @@ const MAX_NATIVE_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024;
 pub struct HubGvisorConfig {
     pub executable: PathBuf,
     pub workspace_root: PathBuf,
+    /// Operator-provisioned bounded persistent volume below workspace_root.
+    /// Only private task subdirectories are mounted into the guest.
+    pub workspace_volume: PathBuf,
+    pub workspace_quota: GvisorWorkspaceQuotaV1,
     pub qualification_manifest: PathBuf,
     pub qualification_receipt: PathBuf,
     pub image: String,
@@ -44,6 +49,11 @@ impl HubGvisorConfig {
             "Hub gVisor image must use an immutable lowercase sha256 digest"
         );
         ensure!(self.cpu_millis > 0, "cpu_millis must be non-zero");
+        ensure!(
+            (1..=1024 * 1024 * 1024).contains(&self.workspace_quota.max_bytes)
+                && (1..=65536).contains(&self.workspace_quota.max_inodes),
+            "persistent workspace quota bounds are invalid"
+        );
         ensure!(
             self.memory_bytes >= 16 * 1024 * 1024,
             "memory bound is too small"
@@ -168,6 +178,7 @@ struct RequestV1 {
     task_id: String,
     image: String,
     workspace: PathBuf,
+    workspace_quota: GvisorWorkspaceQuotaV1,
     command: Vec<String>,
     environment: Vec<(String, String)>,
     cpu_millis: u64,
@@ -204,6 +215,7 @@ struct PhaseExecution<'a> {
     phase: &'static str,
     workspace: &'a Path,
     workspace_root: &'a Path,
+    request_root: &'a Path,
     command: Vec<String>,
     timeout: Duration,
     expected_evidence_id: &'a str,
@@ -243,9 +255,17 @@ impl HubGvisorExecutor {
             .workspace_root
             .canonicalize()
             .context("canonicalize executor-owned workspace root")?;
+        let volume = self.config.workspace_volume.canonicalize()
+            .context("canonicalize persistent task volume")?;
+        ensure!(volume.parent() == Some(workspace_root.as_path()),
+            "persistent task volume must be an immediate child of controller root");
+        let control = tempfile::Builder::new()
+            .prefix("papers-control-")
+            .tempdir_in(&workspace_root)
+            .context("materialize private phase inputs outside guest volume")?;
         let workspace = tempfile::Builder::new()
             .prefix("papers-gvisor-")
-            .tempdir_in(&workspace_root)
+            .tempdir_in(&volume)
             .context("materialize task below executor-owned workspace root")?;
         std::fs::write(workspace.path().join("main.rs"), source)
             .context("write isolated Rust candidate")?;
@@ -256,6 +276,7 @@ impl HubGvisorExecutor {
             phase: "compilation",
             workspace: workspace.path(),
             workspace_root: &workspace_root,
+            request_root: control.path(),
             command: vec![
                 "rustc".into(),
                 "main.rs".into(),
@@ -269,7 +290,7 @@ impl HubGvisorExecutor {
         });
         let mut compiled = match compiled_result {
             Ok(result) => result,
-            Err(error) => return Err(quarantine_refusal(error, workspace)),
+            Err(error) => return Err(quarantine_refusal(error, workspace, control)),
         };
         if !compiled.success {
             return Ok(compiled);
@@ -283,6 +304,7 @@ impl HubGvisorExecutor {
                 return Err(quarantine_refusal(
                     retain_completed_phases(error, &compiled.phase_evidence),
                     workspace,
+                    control,
                 ))
             }
         };
@@ -292,6 +314,7 @@ impl HubGvisorExecutor {
             phase: "execution",
             workspace: workspace.path(),
             workspace_root: &workspace_root,
+            request_root: control.path(),
             command: vec!["./candidate".into()],
             timeout: self.config.timeout,
             expected_evidence_id: &expected_evidence_id,
@@ -304,6 +327,7 @@ impl HubGvisorExecutor {
                 return Err(quarantine_refusal(
                     retain_completed_phases(error, &compiled.phase_evidence),
                     workspace,
+                    control,
                 ))
             }
         };
@@ -318,6 +342,7 @@ impl HubGvisorExecutor {
             phase,
             workspace,
             workspace_root,
+            request_root,
             command,
             timeout,
             expected_evidence_id,
@@ -336,6 +361,7 @@ impl HubGvisorExecutor {
             task_id: task_id.to_owned(),
             image: self.config.image.clone(),
             workspace: workspace.to_path_buf(),
+            workspace_quota: self.config.workspace_quota.clone(),
             command,
             environment: vec![
                 ("HOME".to_owned(), "/tmp".to_owned()),
@@ -351,7 +377,7 @@ impl HubGvisorExecutor {
             default_deny_network: true,
             read_only_root: true,
         };
-        let request_path = workspace.join(format!("{phase}-request.json"));
+        let request_path = request_root.join(format!("{phase}-request.json"));
         let request_bytes = serde_json::to_vec(&request)?;
         let request_sha256 = format!("{:x}", Sha256::digest(&request_bytes));
         std::fs::write(&request_path, request_bytes).context("write Hub gVisor request")?;
@@ -440,10 +466,11 @@ fn lower_hex(value: &str, length: usize) -> bool {
             .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
 }
 
-fn quarantine_refusal(error: anyhow::Error, workspace: tempfile::TempDir) -> anyhow::Error {
+fn quarantine_refusal(error: anyhow::Error, workspace: tempfile::TempDir, control: tempfile::TempDir) -> anyhow::Error {
     let retained = workspace.keep();
+    let inputs = control.keep();
     let reason = format!("{error:#}");
-    error.context(format!("{reason}; executor workspace retained for quarantine/reconciliation at {}; no automatic deletion or replay", retained.display()))
+    error.context(format!("{reason}; executor workspace retained for quarantine/reconciliation at {}; private phase inputs retained outside guest at {}; no automatic deletion or replay", retained.display(), inputs.display()))
 }
 
 #[cfg(test)]
@@ -460,6 +487,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let workspace_root = root.path().join("workspaces");
         std::fs::create_dir(&workspace_root).unwrap();
+        let workspace_volume = workspace_root.join("volume");
+        std::fs::create_dir(&workspace_volume).unwrap();
         let manifest = root.path().join("qualification.json");
         std::fs::write(
             &manifest,
@@ -487,7 +516,7 @@ mod tests {
         };
         let executable = root.path().join("hub");
         std::fs::write(&executable, format!(
-            "#!/bin/sh\ncp \"$1\" '{}'/$(basename \"$1\")\ncase \"$1\" in\n*/compilation-request.json)\n  printf fixture > \"$(dirname \"$1\")/candidate\"\n  printf '%s\\n' '{}'\n  exit {}\n  ;;\n*/execution-request.json)\n  printf called > '{}'/run-called\n  printf '%s\\n' '{}'\n  ;;\n*) exit 3 ;;\nesac\n",
+            "#!/bin/sh\ncp \"$1\" '{}'/$(basename \"$1\")\ncase \"$1\" in\n*/compilation-request.json)\n  sandbox=$(jq -r .workspace \"$1\")\n  printf fixture > \"$sandbox/candidate\"\n  printf '%s\\n' '{}'\n  exit {}\n  ;;\n*/execution-request.json)\n  printf called > '{}'/run-called\n  printf '%s\\n' '{}'\n  ;;\n*) exit 3 ;;\nesac\n",
             root.path().display(), receipt("compile", compile_exit, compile_timeout),
             if compile_timeout && compile_exit == 0 { 1 } else { compile_exit }, root.path().display(), receipt("run", 0, false)
         )).unwrap();
@@ -495,6 +524,8 @@ mod tests {
         let config = HubGvisorConfig {
             executable,
             workspace_root,
+            workspace_volume,
+            workspace_quota: GvisorWorkspaceQuotaV1 { max_bytes: 64 * 1024 * 1024, max_inodes: 256 },
             qualification_manifest: manifest,
             qualification_receipt: root.path().join("receipt.json"),
             image: format!("rust@sha256:{}", "c".repeat(64)),
@@ -549,10 +580,33 @@ mod tests {
         assert_eq!(run["command"], serde_json::json!(["./candidate"]));
         for request in [&compile, &run] {
             assert_eq!(request["pids_limit"], 64);
+            assert_eq!(request["workspace_quota"]["max_bytes"], 64 * 1024 * 1024);
+            assert_eq!(request["workspace_quota"]["max_inodes"], 256);
+            let guest = PathBuf::from(request["workspace"].as_str().unwrap());
+            assert!(guest.starts_with(root.path().join("workspaces/volume")));
+            assert!(!guest.join("compilation-request.json").exists());
+            assert!(!guest.join("execution-request.json").exists());
             // The qualified owner defaults guest NPROC to the unchanged wire
             // budget; PAPERS does not silently widen the host task ceiling.
             assert!(request.get("guest_pids_limit").is_none());
         }
+    }
+
+    #[test]
+    fn quota_bounds_fail_before_materialization_or_dispatch() {
+        let (root, config) = phase_fixture(0, false);
+        for invalid in [0, 1024 * 1024 * 1024 + 1, u64::MAX] {
+            let mut bad = config.clone();
+            bad.workspace_quota.max_bytes = invalid;
+            assert!(HubGvisorExecutor::new(bad).is_err());
+        }
+        for invalid in [0, 65537, u64::MAX] {
+            let mut bad = config.clone();
+            bad.workspace_quota.max_inodes = invalid;
+            assert!(HubGvisorExecutor::new(bad).is_err());
+        }
+        assert_eq!(std::fs::read_dir(&config.workspace_volume).unwrap().count(), 0);
+        assert!(!root.path().join("run-called").exists());
     }
 
     #[test]
@@ -568,7 +622,7 @@ mod tests {
             accepted.pids_limit = valid;
             assert!(HubGvisorExecutor::new(accepted).is_ok());
         }
-        assert_eq!(std::fs::read_dir(&config.workspace_root).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&config.workspace_volume).unwrap().count(), 0);
         assert!(!root.path().join("run-called").exists());
     }
 
@@ -654,13 +708,15 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
         assert!(error.to_string().contains("capture incomplete"));
         assert!(error.to_string().contains("quarantine/reconciliation"));
-        let retained = std::fs::read_dir(root.path().join("workspaces"))
+        let retained = std::fs::read_dir(root.path().join("workspaces/volume"))
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .collect::<Vec<_>>();
         assert_eq!(retained.len(), 1);
         assert!(retained[0].join("main.rs").is_file());
-        assert!(retained[0].join("compilation-request.json").is_file());
+        assert!(!retained[0].join("compilation-request.json").exists());
+        assert!(std::fs::read_dir(root.path().join("workspaces")).unwrap()
+            .any(|entry| entry.unwrap().path().join("compilation-request.json").is_file()));
     }
 
     #[test]
@@ -682,6 +738,8 @@ mod tests {
         let error = HubGvisorExecutor::new(HubGvisorConfig {
             executable: root.path().join("hub"),
             workspace_root: root.path().to_path_buf(),
+            workspace_volume: root.path().join("volume"),
+            workspace_quota: GvisorWorkspaceQuotaV1 { max_bytes: 64 * 1024 * 1024, max_inodes: 256 },
             qualification_manifest: root.path().join("qualification.json"),
             qualification_receipt: root.path().join("receipt.json"),
             image: "rust:latest".to_owned(),

@@ -14,6 +14,11 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     let config = HubGvisorConfig {
         executable: PathBuf::from(required("PAPERS_HUB_GVISOR_EXECUTABLE")),
         workspace_root: PathBuf::from(required("PAPERS_HUB_GVISOR_WORKSPACE_ROOT")),
+        workspace_volume: PathBuf::from(required("PAPERS_HUB_GVISOR_WORKSPACE_VOLUME")),
+        workspace_quota: hub_executor::gvisor::GvisorWorkspaceQuotaV1 {
+            max_bytes: 64 * 1024 * 1024,
+            max_inodes: 256,
+        },
         qualification_manifest: PathBuf::from(required("PAPERS_HUB_GVISOR_QUALIFICATION")),
         qualification_receipt: PathBuf::from(required("PAPERS_HUB_GVISOR_QUALIFICATION_RECEIPT")),
         image: required("PAPERS_HUB_GVISOR_IMAGE"),
@@ -127,8 +132,8 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         serde_json::to_string(&timed.phase_evidence).unwrap()
     );
 
-    let workspace_root = config.workspace_root.clone();
-    let prior_workspaces: Vec<_> = std::fs::read_dir(&workspace_root)
+    let workspace_volume = config.workspace_volume.clone();
+    let prior_workspaces: Vec<_> = std::fs::read_dir(&workspace_volume)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
@@ -154,7 +159,7 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         "{error:#}"
     );
     assert!(error.to_string().contains("retained for quarantine"));
-    let retained: Vec<_> = std::fs::read_dir(&workspace_root)
+    let retained: Vec<_> = std::fs::read_dir(&workspace_volume)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| !prior_workspaces.contains(path))
@@ -162,15 +167,23 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     assert_eq!(retained.len(), 1, "refused task must retain its workspace");
     assert!(retained[0].join("main.rs").is_file());
     assert!(retained[0].join("candidate").is_file());
-    assert!(retained[0].join("compilation-request.json").is_file());
-    assert!(retained[0].join("execution-request.json").is_file());
+    assert!(!retained[0].join("compilation-request.json").exists());
+    assert!(!retained[0].join("execution-request.json").exists());
     // Process cleanup is not overall task success: admission still refuses
     // truncated output and preserves the task workspace/completed compile facts.
     inspect(&refused.execution_phases[0].task_id);
+    let inputs: Vec<_> = std::fs::read_dir(&config.workspace_root).unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.join("execution-request.json").is_file())
+        .collect();
+    assert_eq!(inputs.len(), 1);
+    assert!(inputs[0].join("compilation-request.json").is_file());
+    assert!(!inputs[0].starts_with(&workspace_volume));
     let execution_request: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(retained[0].join("execution-request.json")).unwrap(),
-    )
-    .unwrap();
+        &std::fs::read(inputs[0].join("execution-request.json")).unwrap(),
+    ).unwrap();
+    assert_eq!(execution_request["workspace_quota"]["max_bytes"], 64 * 1024 * 1024);
+    assert_eq!(execution_request["workspace_quota"]["max_inodes"], 256);
     inspect(execution_request["task_id"].as_str().unwrap());
     println!(
         "PAPERS_GVISOR_REFUSAL_COMPLETED_PHASES={}",
@@ -178,4 +191,48 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     );
     println!("PAPERS_GVISOR_OUTPUT_LIMIT_REFUSAL_OK");
     println!("PAPERS_GVISOR_REFUSAL_QUARANTINE_OK");
+
+    // Finite generated diagnostics execute ONLY in the real owner sandbox.
+    // Each file is below16 MiB RLIMIT; total128 MiB exceeds64 MiB volume.
+    for mode in ["bytes", "inodes"] {
+        let source = format!(r#"
+fn main() {{
+    use std::fs::{{File, remove_file}};
+    use std::io::Write;
+    assert!(!std::path::Path::new("compilation-request.json").exists());
+    assert!(!std::path::Path::new("execution-request.json").exists());
+    let mode = "{mode}";
+    let bound = if mode == "bytes" {{ 32 }} else {{ 512 }};
+    let mut denied = None;
+    let mut created = 0;
+    for index in 0..bound {{
+        let result = File::create(format!("quota-{{index}}"))
+            .and_then(|mut file| {{
+                if mode == "bytes" {{ file.write_all(&vec![1u8; 4 * 1024 * 1024])?; }}
+                file.sync_all()
+            }});
+        match result {{
+            Ok(()) => created += 1,
+            Err(error) => {{ denied = error.raw_os_error(); break; }}
+        }}
+    }}
+    assert_eq!(denied, Some(28));
+    assert!(created > 0 && created < bound);
+    if mode == "bytes" {{ assert!(created < 16); }}
+    for index in 0..bound {{ let _ = remove_file(format!("quota-{{index}}")); }}
+    println!("PAPERS_AGGREGATE_{{mode}}_ENOSPC={{created}}");
+}}
+"#);
+        let probe = Engineer::new(120).with_hub_gvisor(config.clone()).unwrap()
+            .execute(&source, None::<fn(&str) -> EngineerOutput>);
+        assert!(probe.success, "{:?}", probe.error);
+        assert_eq!(probe.score, 0.0);
+        assert_eq!(probe.authority, EvaluationAuthority::IsolatedRuntimeDiagnostic);
+        assert!(!probe.is_empirically_validated());
+        assert_eq!(probe.execution_phases.len(), 2);
+        assert_eq!(probe.execution_phases[0].artifact_sha256, probe.execution_phases[1].artifact_sha256);
+        for phase in &probe.execution_phases { inspect(&phase.task_id); }
+        println!("PAPERS_GVISOR_QUOTA_{mode}={}", serde_json::to_string(&probe.execution_phases).unwrap());
+    }
+    println!("PAPERS_REAL_AGGREGATE_BYTES_INODES_PRIVATE_PHASE_INPUTS_OK");
 }
