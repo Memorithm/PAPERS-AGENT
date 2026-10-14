@@ -114,6 +114,7 @@ pub struct PapersEngine {
     pub llm: Option<LlmClient>,
     pub pipeline: ExtractionPipeline,
     pub doc_store: DocStore,
+    hub_gvisor: Option<crate::hub_gvisor::HubGvisorConfig>,
 }
 
 impl PapersEngine {
@@ -137,7 +138,18 @@ impl PapersEngine {
             llm,
             pipeline: ExtractionPipeline::new(),
             doc_store: DocStore::with_corpus_documents(SEED_CORPUS),
+            hub_gvisor: None,
         }
+    }
+
+    /// Configure isolated candidate execution explicitly; no host fallback on error.
+    pub fn with_hub_gvisor(
+        mut self,
+        config: crate::hub_gvisor::HubGvisorConfig,
+    ) -> anyhow::Result<Self> {
+        crate::hub_gvisor::HubGvisorExecutor::new(config.clone())?;
+        self.hub_gvisor = Some(config);
+        Ok(self)
     }
 
     /// Extrait un document depuis une source (PDF, arXiv, URL, texte).
@@ -346,6 +358,11 @@ impl PapersEngine {
         record_evolution();
 
         let mut evo = EvolutionLoop::new(config.clone());
+        if let Some(ref backend) = self.hub_gvisor {
+            evo = evo
+                .with_hub_gvisor(backend.clone())
+                .map_err(|error| error.to_string())?;
+        }
 
         // Seeder la cognition avec le contenu du papier
         let abstracts = document.abstract_text.clone().unwrap_or_default();

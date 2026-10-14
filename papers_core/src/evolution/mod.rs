@@ -22,6 +22,15 @@ pub struct EvolutionLoop {
 }
 
 impl EvolutionLoop {
+    /// Attach the owner-qualified backend without changing scientific selection.
+    pub fn with_hub_gvisor(
+        mut self,
+        config: crate::hub_gvisor::HubGvisorConfig,
+    ) -> anyhow::Result<Self> {
+        self.engineer = self.engineer.with_hub_gvisor(config)?;
+        Ok(self)
+    }
+
     pub fn new(config: EvolutionConfig) -> Self {
         let sampler_name = config.sampling_policy.clone();
         let task = config.task_description.clone();
@@ -116,6 +125,10 @@ impl EvolutionLoop {
                     "evaluation_authority".into(),
                     serde_json::json!(result.authority.as_str()),
                 );
+                if let Some(ref evidence) = result.execution_evidence {
+                    node.results
+                        .insert("execution_evidence".into(), serde_json::json!(evidence));
+                }
                 if let Some(ref err) = result.error {
                     node.results.insert("error".into(), serde_json::json!(err));
                 }
