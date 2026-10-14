@@ -115,3 +115,22 @@ audit_guest_PID_consumer_integrated_2026_10_14:
     - aggregate_workspace_OS_quota
     - durable_ambiguous_creation_and_quarantine_reconciliation
     - no_global_audit_closure_hardware_performance_ARM64_or_scientific_promotion
+
+audit_durable_owner_attempt_adoption_2026_10_14:
+  finding: PAPERS-01
+  status: candidate_CI_review_pending_no_finding_closure
+  pull_request: 16
+  candidate: 3fbf38bf69c140321a83ddcdca49a4b57abed74d
+  owner_pull_request: Memorithm/scirust-hub#90
+  owner_commit: cf5233af12499605bd57d9d613b3cddc3bc39d08
+  owner_integrated_qualification_run: 38517039600
+  owner_archive_sha256: 42436f60653968c1be42a198c625a9a22e690f1d569aecd2956699df3ae16eed
+  contracts:
+    - exact_locked4package_graph_core_executor_protocol_store_sqlite
+    - actual_owner_receipt_manifest_archive_CLI_same_revision
+    - live_consumer_inspects_cleaned_attempts_without_promoting_semantic_refusal
+    - retained_workspace_and_compile_facts_remain_zero_fitness_nonempirical
+  remaining:
+    - candidate3gates_review_then_exact_integrated_qualification
+    - aggregate_workspace_OS_quota
+    - no_production_deployment_scientific_or_hardware_claim
