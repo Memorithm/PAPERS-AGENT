@@ -18,16 +18,18 @@ const RESEARCHER_PROMPT: &str = "\
 {context_nodes}
 
 ## Requirements
-1. Write a SINGLE Rust function that solves the task
+1. Write a Rust function that solves the task AND an executable fn main()
 2. The code must be COMPLETE (all imports, all helper functions, all logic)
 3. The code must be self-contained
 4. Use only the Rust standard library
-5. Return ONLY valid JSON: {{\"program\": \"...\", \"motivation\": \"...\"}}
+5. Return ONLY valid JSON: {\"program\": \"...\", \"motivation\": \"...\"}
 6. The program field must contain the FULL source code as a string
+7. The FIRST statement of main() must call the declared candidate function on literal bounded development inputs (optionally let result = candidate(...)), then print its output
+8. This harness is a runtime diagnostic, NOT a task oracle or empirical fitness claim
 
 Respond with JSON:
-{{\"motivation\": \"explain your approach in 1-2 sentences\", \
-\"program\": \"fn solve(input: &[i32]) -> Vec<i32> {{ input.to_vec() }}\"}}";
+{\"motivation\": \"explain your approach in 1-2 sentences\", \
+\"program\": \"fn solve(input: &[i32]) -> Vec<i32> { input.to_vec() } fn main() { let result = solve(&[1, 2]); println!(\\\"{:?}\\\", result); }\"}";
 
 const DIFF_RESEARCHER_PROMPT: &str = "\
 ## Task Description
@@ -46,6 +48,9 @@ const DIFF_RESEARCHER_PROMPT: &str = "\
 
 ## Instructions
 You are modifying the parent program above. Produce localized, targeted changes. \
+Preserve an executable fn main() whose FIRST statement calls the declared candidate on literal bounded \
+development example; do not return a helper-only program or infer scientific \
+fitness from this diagnostic harness. \
 Respond as a JSON object with:
 - \"motivation\": Explanation of what you are changing and why.
 - \"program\": The COMPLETE modified program (not just the diff).
@@ -63,6 +68,12 @@ pub struct Researcher {
 }
 
 impl Researcher {
+    /// Deterministic development candidate with a real calling harness.
+    /// It supplies no task-oracle or scientific authority.
+    pub fn development_fallback(task_description: &str) -> ResearcherOutput {
+        Self::fallback_generation(task_description)
+    }
+
     pub fn new(model: &str) -> Self {
         Self {
             model: model.to_string(),
@@ -131,10 +142,261 @@ impl Researcher {
     }
 
     fn is_valid(program: &str) -> bool {
-        program.contains("fn ")
-            || program.contains("struct ")
-            || program.contains("impl ")
-            || program.contains("use ")
+        // Conservative syntax preflight, not scientific qualification. The first
+        // statement must invoke a declared nonempty function, not mention it
+        // inside a comment, string, closure, branch or no-op macro.
+        if program.len() > 64 * 1024 {
+            return false;
+        }
+        // Before recursive Rust parsing, conservatively bound grammar density.
+        // Count even punctuation in comments/strings: false negatives are safe
+        // and select the preserved fallback rather than expanding host parsing.
+        if program
+            .bytes()
+            .filter(|byte| byte.is_ascii_punctuation())
+            .count()
+            > 512
+        {
+            return false;
+        }
+        let Ok(file) = syn::parse_file(program) else {
+            return false;
+        };
+        let functions: Vec<_> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Fn(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+        let Some(main) = functions
+            .iter()
+            .find(|function| function.sig.ident == "main")
+        else {
+            return false;
+        };
+        if !main.sig.inputs.is_empty() {
+            return false;
+        }
+        let call = match main.block.stmts.first() {
+            Some(syn::Stmt::Expr(syn::Expr::Call(call), _)) => call,
+            Some(syn::Stmt::Local(local)) => match local.init.as_ref() {
+                Some(init) if init.diverge.is_none() => match init.expr.as_ref() {
+                    syn::Expr::Call(call) => call,
+                    _ => return false,
+                },
+                _ => return false,
+            },
+            _ => return false,
+        };
+        let syn::Expr::Path(path) = call.func.as_ref() else {
+            return false;
+        };
+        let Some(name) = path.path.get_ident() else {
+            return false;
+        };
+        let budget = std::cell::Cell::new(4096usize);
+        name != "main"
+            && functions.iter().any(|function| {
+                function.sig.ident == *name
+                    && Self::body_exercises_work(&function.block, &functions, 0, &budget)
+            })
+            && call.args.iter().all(Self::literal_probe_input)
+            && budget.get() > 0
+    }
+
+    // Refuse logging-only helpers, including chains of such helpers. This is
+    // bounded syntactic activity detection, not proof of algorithm semantics.
+    fn body_exercises_work(
+        block: &syn::Block,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        if depth >= 16 || budget.get() == 0 {
+            return false;
+        }
+        budget.set(budget.get() - 1);
+        for stmt in &block.stmts {
+            let active = match stmt {
+                syn::Stmt::Expr(expr, _) => {
+                    Self::expr_exercises_work(expr, functions, depth, budget)
+                }
+                syn::Stmt::Local(local) => local.init.as_ref().is_some_and(|init| {
+                    Self::expr_exercises_work(&init.expr, functions, depth, budget)
+                }),
+                syn::Stmt::Macro(mac) => {
+                    Self::macro_exercises_work(&mac.mac, functions, depth, budget)
+                }
+                syn::Stmt::Item(_) => false,
+            };
+            if active {
+                return true;
+            }
+            if matches!(stmt, syn::Stmt::Expr(syn::Expr::Return(_), _)) {
+                return false;
+            }
+        }
+        false
+    }
+
+    fn macro_exercises_work(
+        mac: &syn::Macro,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        use syn::parse::Parser;
+        if depth >= 16 || budget.get() == 0 {
+            return false;
+        }
+        budget.set(budget.get() - 1);
+        let Some(name) = mac
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+        else {
+            return false;
+        };
+        if name == "vec" {
+            return true;
+        }
+        if !matches!(
+            name.as_str(),
+            "print" | "println" | "eprint" | "eprintln" | "dbg" | "format"
+        ) {
+            return false;
+        }
+        let Ok(args) = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
+            .parse2(mac.tokens.clone())
+        else {
+            return false;
+        };
+        args.iter()
+            .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth, budget))
+    }
+
+    // Borrowing/casting/grouping a stored value does not exercise a candidate.
+    fn logging_argument_exercises_work(
+        expr: &syn::Expr,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        if depth >= 16 || budget.get() == 0 {
+            return false;
+        }
+        budget.set(budget.get() - 1);
+        match expr {
+            syn::Expr::Lit(_) | syn::Expr::Path(_) => false,
+            syn::Expr::Assign(assign) => {
+                Self::logging_argument_exercises_work(&assign.right, functions, depth + 1, budget)
+            }
+            syn::Expr::Reference(reference) => {
+                Self::logging_argument_exercises_work(&reference.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Paren(paren) => {
+                Self::logging_argument_exercises_work(&paren.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Group(group) => {
+                Self::logging_argument_exercises_work(&group.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Cast(cast) => {
+                Self::logging_argument_exercises_work(&cast.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Unary(unary) => {
+                Self::logging_argument_exercises_work(&unary.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Tuple(tuple) => tuple.elems.iter().any(|expr| {
+                Self::logging_argument_exercises_work(expr, functions, depth + 1, budget)
+            }),
+            syn::Expr::Array(array) => array.elems.iter().any(|expr| {
+                Self::logging_argument_exercises_work(expr, functions, depth + 1, budget)
+            }),
+            _ => Self::expr_exercises_work(expr, functions, depth + 1, budget),
+        }
+    }
+
+    fn expr_exercises_work(
+        expr: &syn::Expr,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        if depth >= 16 || budget.get() == 0 {
+            return false;
+        }
+        budget.set(budget.get() - 1);
+        match expr {
+            syn::Expr::Call(call) => {
+                if let syn::Expr::Path(path) = call.func.as_ref() {
+                    if let Some(name) = path.path.get_ident() {
+                        if let Some(function) = functions
+                            .iter()
+                            .find(|function| function.sig.ident == *name)
+                        {
+                            return Self::body_exercises_work(
+                                &function.block,
+                                functions,
+                                depth + 1,
+                                budget,
+                            );
+                        }
+                    }
+                }
+                false
+            }
+            syn::Expr::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth, budget),
+            syn::Expr::Block(block) => {
+                Self::body_exercises_work(&block.block, functions, depth + 1, budget)
+            }
+            syn::Expr::Return(ret) => ret
+                .expr
+                .as_ref()
+                .is_some_and(|expr| Self::expr_exercises_work(expr, functions, depth, budget)),
+            syn::Expr::Paren(paren) => {
+                Self::expr_exercises_work(&paren.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Group(group) => {
+                Self::expr_exercises_work(&group.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Reference(reference) => {
+                Self::expr_exercises_work(&reference.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Cast(cast) => {
+                Self::expr_exercises_work(&cast.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Unary(unary) => {
+                Self::expr_exercises_work(&unary.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Tuple(tuple) => tuple
+                .elems
+                .iter()
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1, budget)),
+            syn::Expr::Array(array) => array
+                .elems
+                .iter()
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1, budget)),
+            syn::Expr::Lit(_) | syn::Expr::Closure(_) | syn::Expr::Async(_) => false,
+            // Data access, arithmetic, method calls and control flow are activity;
+            // only runtime/independent oracles can qualify their actual meaning.
+            _ => true,
+        }
+    }
+
+    fn literal_probe_input(expr: &syn::Expr) -> bool {
+        match expr {
+            syn::Expr::Lit(_) => true,
+            syn::Expr::Array(array) => array.elems.iter().all(Self::literal_probe_input),
+            syn::Expr::Tuple(tuple) => tuple.elems.iter().all(Self::literal_probe_input),
+            syn::Expr::Reference(reference) => Self::literal_probe_input(&reference.expr),
+            syn::Expr::Unary(unary) if matches!(&unary.op, syn::UnOp::Neg(_)) => {
+                Self::literal_probe_input(&unary.expr)
+            }
+            _ => false,
+        }
     }
 
     fn clean_program(program: &str) -> String {
@@ -424,10 +686,163 @@ impl MctsNode {
                  task_description.chars().take(60).collect::<String>()))
         };
 
+        // Preserve each existing fallback algorithm and actually invoke it.
+        // These small development inputs are diagnostics, never locked data or
+        // an independent task oracle; Engineer assigns zero empirical fitness.
+        let invocation = match motivation.as_str() {
+            "Multi-head attention baseline" => "println!(\"{:?}\", attention(&[1.0, 0.0], &[1.0, 0.0], &[2.0, 3.0], 2));",
+            "Simple embedding projection" => "println!(\"{:?}\", embed(&[0], &[1.0, 2.0], 1, 2));",
+            "Simple RNN cell forward pass" => "println!(\"{:?}\", rnn_step(&[1.0], &[0.0], &[1.0], &[0.0]));",
+            "Simple 2D convolution baseline" => "println!(\"{:?}\", conv2d(&[1.0, 2.0, 3.0, 4.0], &[1.0], 2, 2, 1));",
+            "Simple GNN message passing layer" => "println!(\"{:?}\", message_passing(&[1.0, 2.0], &[0.0, 1.0, 1.0, 0.0], 2, 1));",
+            "Baseline sort optimization" => "println!(\"{:?}\", optimize(&mut [3, 1, 2]));",
+            "Hexagonal grid packing baseline" => "println!(\"{:?}\", place_circles(1));",
+            "Simple Q-learning agent baseline" => "let mut agent = QAgent::new(2, 2); agent.update(0, 0, 1.0, 1); println!(\"{}\", agent.act(0, 0.0));",
+            "Monte Carlo Tree Search baseline" => "println!(\"{}\", MctsNode::new().ucb1(1, 1.0));",
+            _ => "println!(\"{:?}\", solve(&[1, 2]));",
+        };
+        let program = format!("{program}\n\nfn development_probe() {{ {invocation} }}\nfn main() {{ development_probe(); }}\n");
+
         ResearcherOutput {
             motivation,
             program,
             diff_summary: String::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_only_generation_is_not_an_executable_candidate() {
+        assert!(!Researcher::is_valid("fn solve(x: i32) -> i32 { x }"));
+        assert!(Researcher::is_valid(
+            "fn solve(x: i32) -> i32 { x } fn main() { let result = solve(1); println!(\"{}\", result); }"
+        ));
+    }
+
+    #[test]
+    fn empty_noncalling_or_conditional_entrypoints_are_refused() {
+        for main in [
+            "fn main() {}",
+            "fn main() { println!(\"hello\"); }",
+            "fn main() { println!(\"solve(1)\"); }",
+            "fn main() { if false { solve(1); } }",
+            "fn main() { let _unused = || solve(1); }",
+            "fn main() { return; solve(1); }",
+            "fn main() { let _ = solve({ std::process::exit(0); }); }",
+        ] {
+            assert!(
+                !Researcher::is_valid(&format!("fn solve(x: i32) -> i32 {{ x }} {main}")),
+                "{main}"
+            );
+        }
+    }
+
+    #[test]
+    fn logging_only_helpers_are_not_candidate_invocations() {
+        let algorithm = "fn algorithm(x: i32) -> i32 { x + 1 }";
+        for driver in [
+            "fn decoy() { println!(\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{}\", &\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{message}\", message = \"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { let borrowed = &\"ok\"; println!(\"{}\", borrowed); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{}\", (&(1 as u64))); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{:?}\", (&[1, 2], -1)); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"ok\"); } fn wrapper() { decoy(); } fn main() { wrapper(); }",
+            "fn decoy() { println!(\"ok\"); return; algorithm(1); } fn main() { decoy(); }",
+            "fn decoy() { decoy(); } fn main() { decoy(); }",
+        ] {
+            assert!(
+                !Researcher::is_valid(&format!("{algorithm} {driver}")),
+                "{driver}"
+            );
+        }
+        assert!(Researcher::is_valid(&format!("{algorithm} fn probe() {{ println!(\"{{}}\", algorithm(1)); }} fn main() {{ probe(); }}")));
+    }
+
+    #[test]
+    fn punctuation_dense_source_is_refused_before_recursive_parsing() {
+        let program = format!(
+            "fn solve() -> bool {{ {}true }} fn main() {{ solve(); }}",
+            "!".repeat(600)
+        );
+        assert!(!Researcher::is_valid(&program));
+    }
+
+    #[test]
+    fn branching_no_work_call_graph_is_budgeted() {
+        let mut program = String::from("fn leaf() { println!(\"ok\"); }");
+        let mut child = String::from("leaf");
+        for level in 0..8 {
+            let name = format!("branch_{level}");
+            program.push_str(&format!(
+                "fn {name}() {{ {} }}",
+                format!("{child}();").repeat(8)
+            ));
+            child = name;
+        }
+        program.push_str(&format!("fn main() {{ {child}(); }}"));
+        assert!(
+            program
+                .bytes()
+                .filter(|byte| byte.is_ascii_punctuation())
+                .count()
+                <= 512
+        );
+        let file = syn::parse_file(&program).unwrap();
+        let functions: Vec<_> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Fn(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+        let target = functions
+            .iter()
+            .find(|function| function.sig.ident == child.as_str())
+            .unwrap();
+        let budget = std::cell::Cell::new(4096);
+        assert!(!Researcher::body_exercises_work(
+            &target.block,
+            &functions,
+            0,
+            &budget
+        ));
+        assert_eq!(
+            budget.get(),
+            0,
+            "global traversal budget actually exhausted"
+        );
+        assert!(!Researcher::is_valid(&program));
+    }
+
+    #[test]
+    fn every_fallback_preserves_its_algorithm_and_adds_a_calling_harness() {
+        for (task, helper) in [
+            ("attention", "pub fn attention"),
+            ("embedding", "pub fn embed"),
+            ("rnn", "pub fn rnn_step"),
+            ("conv", "pub fn conv2d"),
+            ("graph", "pub fn message_passing"),
+            ("sort", "pub fn optimize"),
+            ("circle", "pub fn place_circles"),
+            ("agent", "pub struct QAgent"),
+            ("search", "pub struct MctsNode"),
+            ("generic", "pub fn solve"),
+        ] {
+            let output = Researcher::fallback_generation(task);
+            assert!(output.program.contains(helper), "{task}");
+            assert!(Researcher::is_valid(&output.program), "{task}");
+            assert!(
+                output
+                    .program
+                    .contains("fn main() { development_probe(); }"),
+                "{task}"
+            );
         }
     }
 }

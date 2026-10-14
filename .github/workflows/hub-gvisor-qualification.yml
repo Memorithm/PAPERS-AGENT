@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - papers_core/src/hub_gvisor.rs
+      - papers_core/src/evolution/**
+      - papers_core/src/engine.rs
       - papers_core/tests/hub_gvisor_live.rs
       - papers_core/qualification/hub-gvisor/**
       - .github/workflows/hub-gvisor-qualification.yml
@@ -12,6 +14,8 @@ on:
     branches: [master]
     paths:
       - papers_core/src/hub_gvisor.rs
+      - papers_core/src/evolution/**
+      - papers_core/src/engine.rs
       - papers_core/tests/hub_gvisor_live.rs
       - papers_core/qualification/hub-gvisor/**
       - .github/workflows/hub-gvisor-qualification.yml

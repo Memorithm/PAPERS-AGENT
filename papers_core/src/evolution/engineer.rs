@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::hub_gvisor::{HubGvisorConfig, HubGvisorExecutor};
 use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
 
 /// Authority of an evaluation result.
@@ -12,6 +13,7 @@ use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
 pub enum EvaluationAuthority {
     TaskOracle,
     WasmRuntimeDiagnostic,
+    IsolatedRuntimeDiagnostic,
     StructuralDiagnostic,
 }
 
@@ -20,6 +22,7 @@ impl EvaluationAuthority {
         match self {
             Self::TaskOracle => "task_oracle",
             Self::WasmRuntimeDiagnostic => "wasm_runtime_diagnostic",
+            Self::IsolatedRuntimeDiagnostic => "isolated_runtime_diagnostic",
             Self::StructuralDiagnostic => "structural_diagnostic",
         }
     }
@@ -37,6 +40,8 @@ pub struct EngineerOutput {
     pub metrics: HashMap<String, f64>,
     pub runtime_secs: f64,
     pub authority: EvaluationAuthority,
+    /// Verified owner evidence identity, never scientific or merge authority.
+    pub execution_evidence: Option<String>,
 }
 
 impl EngineerOutput {
@@ -48,13 +53,14 @@ impl EngineerOutput {
 
 /// Evaluates candidate programs produced by the Researcher.
 ///
-/// Uses `WasmExecutor` for sandboxed evaluation when available, or performs
-/// structural analysis with code quality metrics as a fallback.
+/// Uses an explicitly configured qualified Hub backend for untrusted execution.
+/// WASM and structural analysis remain diagnostics, not hostile-code sandboxes.
 pub struct Engineer {
     #[allow(dead_code)]
     timeout_secs: u64,
     #[allow(dead_code)]
     wasm: Option<WasmExecutor>,
+    hub_gvisor: Option<HubGvisorExecutor>,
 }
 
 impl Engineer {
@@ -62,6 +68,7 @@ impl Engineer {
         Self {
             timeout_secs,
             wasm: None,
+            hub_gvisor: None,
         }
     }
 
@@ -70,6 +77,12 @@ impl Engineer {
         let wasm = WasmExecutor::new(config).ok();
         self.wasm = wasm;
         self
+    }
+
+    /// Explicit operator configuration; invalid configuration is never downgraded.
+    pub fn with_hub_gvisor(mut self, config: HubGvisorConfig) -> anyhow::Result<Self> {
+        self.hub_gvisor = Some(HubGvisorExecutor::new(config)?);
+        Ok(self)
     }
 
     /// Evaluate a program using the injected `eval_fn`, WASM, or structural analysis.
@@ -87,7 +100,37 @@ impl Engineer {
             return result;
         }
 
-        // Try WASM evaluation if executor is available
+        if let Some(ref hub) = self.hub_gvisor {
+            let result = hub.execute_rust_source(program);
+            return match result {
+                Ok(result) => EngineerOutput {
+                    success: result.success,
+                    score: 0.0,
+                    error: (!result.success).then_some(result.stderr),
+                    metrics: HashMap::from([
+                        (
+                            "runtime_success".into(),
+                            if result.success { 1.0 } else { 0.0 },
+                        ),
+                        ("timed_out".into(), if result.timed_out { 1.0 } else { 0.0 }),
+                    ]),
+                    runtime_secs: start.elapsed().as_secs_f64(),
+                    authority: EvaluationAuthority::IsolatedRuntimeDiagnostic,
+                    execution_evidence: Some(result.isolation_evidence_id),
+                },
+                Err(error) => EngineerOutput {
+                    success: false,
+                    score: 0.0,
+                    error: Some(format!("qualified Hub execution refused: {error}")),
+                    metrics: HashMap::new(),
+                    runtime_secs: start.elapsed().as_secs_f64(),
+                    authority: EvaluationAuthority::IsolatedRuntimeDiagnostic,
+                    execution_evidence: None,
+                },
+            };
+        }
+
+        // The legacy WASM path still refuses untrusted local compilation.
         if let Some(ref wasm) = self.wasm {
             let result = wasm.execute_rust_source(program);
             match result {
@@ -104,6 +147,7 @@ impl Engineer {
                         metrics,
                         runtime_secs: start.elapsed().as_secs_f64(),
                         authority: EvaluationAuthority::WasmRuntimeDiagnostic,
+                        execution_evidence: None,
                     };
                 }
             }
@@ -133,6 +177,7 @@ impl Engineer {
             metrics,
             runtime_secs: start.elapsed().as_secs_f64(),
             authority: EvaluationAuthority::WasmRuntimeDiagnostic,
+            execution_evidence: None,
         }
     }
 
@@ -196,6 +241,7 @@ impl Engineer {
                 metrics,
                 runtime_secs: start.elapsed().as_secs_f64(),
                 authority: EvaluationAuthority::StructuralDiagnostic,
+                execution_evidence: None,
             }
         } else {
             let mut error = Vec::new();
@@ -212,6 +258,7 @@ impl Engineer {
                 metrics,
                 runtime_secs: start.elapsed().as_secs_f64(),
                 authority: EvaluationAuthority::StructuralDiagnostic,
+                execution_evidence: None,
             }
         }
     }
@@ -246,12 +293,52 @@ impl Engineer {
             None => primary,
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn missing_backend_config(root: &std::path::Path) -> HubGvisorConfig {
+        HubGvisorConfig {
+            executable: root.join("missing-owner"),
+            workspace_root: root.to_path_buf(),
+            qualification_manifest: root.join("missing-qualification.json"),
+            qualification_receipt: root.join("missing-receipt.json"),
+            image: format!("rust@sha256:{}", "a".repeat(64)),
+            cpu_millis: 1000,
+            memory_bytes: 512 * 1024 * 1024,
+            pids_limit: 64,
+            timeout: std::time::Duration::from_secs(1),
+            max_source_bytes: 4096,
+            max_capture_bytes: 65536,
+        }
+    }
+
+    #[test]
+    fn configured_backend_failure_never_becomes_structural_success() {
+        let root = tempfile::tempdir().unwrap();
+        let engineer = Engineer::new(1)
+            .with_hub_gvisor(missing_backend_config(root.path()))
+            .unwrap();
+        let output = engineer.execute("fn main() {}", None::<fn(&str) -> EngineerOutput>);
+        assert!(!output.success);
+        assert_eq!(output.score, 0.0);
+        assert_eq!(
+            output.authority,
+            EvaluationAuthority::IsolatedRuntimeDiagnostic
+        );
+        assert!(output.execution_evidence.is_none());
+        assert!(!output.is_empirically_validated());
+    }
+
+    #[test]
+    fn invalid_backend_configuration_is_returned_not_silently_ignored() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = missing_backend_config(root.path());
+        config.image = "rust:latest".into();
+        assert!(Engineer::new(1).with_hub_gvisor(config).is_err());
+    }
 
     #[test]
     fn wasm_runtime_success_is_diagnostic_not_empirical_fitness() {
@@ -285,6 +372,7 @@ mod tests {
                 metrics: HashMap::new(),
                 runtime_secs: 0.0,
                 authority: EvaluationAuthority::StructuralDiagnostic,
+                execution_evidence: None,
             }),
         );
         assert_eq!(output.authority, EvaluationAuthority::TaskOracle);
