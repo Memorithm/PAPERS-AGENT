@@ -286,6 +286,9 @@ impl Researcher {
     }
 
     fn expr_exercises_work(expr: &syn::Expr, functions: &[&syn::ItemFn], depth: usize) -> bool {
+        if depth >= 16 {
+            return false;
+        }
         match expr {
             syn::Expr::Call(call) => {
                 if let syn::Expr::Path(path) = call.func.as_ref() {
@@ -312,8 +315,21 @@ impl Researcher {
                 .expr
                 .as_ref()
                 .is_some_and(|expr| Self::expr_exercises_work(expr, functions, depth)),
-            syn::Expr::Paren(paren) => Self::expr_exercises_work(&paren.expr, functions, depth),
-            syn::Expr::Group(group) => Self::expr_exercises_work(&group.expr, functions, depth),
+            syn::Expr::Paren(paren) => Self::expr_exercises_work(&paren.expr, functions, depth + 1),
+            syn::Expr::Group(group) => Self::expr_exercises_work(&group.expr, functions, depth + 1),
+            syn::Expr::Reference(reference) => {
+                Self::expr_exercises_work(&reference.expr, functions, depth + 1)
+            }
+            syn::Expr::Cast(cast) => Self::expr_exercises_work(&cast.expr, functions, depth + 1),
+            syn::Expr::Unary(unary) => Self::expr_exercises_work(&unary.expr, functions, depth + 1),
+            syn::Expr::Tuple(tuple) => tuple
+                .elems
+                .iter()
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1)),
+            syn::Expr::Array(array) => array
+                .elems
+                .iter()
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1)),
             syn::Expr::Lit(_) | syn::Expr::Closure(_) | syn::Expr::Async(_) => false,
             // Data access, arithmetic, method calls and control flow are activity;
             // only runtime/independent oracles can qualify their actual meaning.
@@ -682,6 +698,7 @@ mod tests {
         for driver in [
             "fn decoy() { println!(\"ok\"); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{}\", &\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { let borrowed = &\"ok\"; println!(\"{}\", borrowed); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{}\", (&(1 as u64))); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{:?}\", (&[1, 2], -1)); } fn main() { decoy(); }",
             "fn decoy() { println!(\"ok\"); } fn wrapper() { decoy(); } fn main() { wrapper(); }",
