@@ -100,15 +100,28 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
 
     let mut output_config = config;
     output_config.max_capture_bytes = 1024;
-    let error = HubGvisorExecutor::new(output_config)
+    let refused = Engineer::new(120)
+        .with_hub_gvisor(output_config)
         .unwrap()
-        .execute_rust_source(
+        .execute(
             "fn main() { for _ in 0..4096 { println!(\"bounded-output-probe\"); } }",
-        )
-        .unwrap_err();
+            None::<fn(&str) -> EngineerOutput>,
+        );
+    assert!(!refused.success);
+    assert_eq!(refused.score, 0.0);
+    assert!(!refused.is_empirically_validated());
+    assert!(refused.execution_evidence.is_none());
+    assert_eq!(refused.execution_phases.len(), 1);
+    assert_eq!(refused.execution_phases[0].phase, "compilation");
+    assert!(refused.execution_phases[0].artifact_sha256.is_some());
+    let error = refused.error.unwrap();
     assert!(
         error.to_string().contains("qualified isolation contract"),
         "{error:#}"
+    );
+    println!(
+        "PAPERS_GVISOR_REFUSAL_COMPLETED_PHASES={}",
+        serde_json::to_string(&refused.execution_phases).unwrap()
     );
     println!("PAPERS_GVISOR_OUTPUT_LIMIT_REFUSAL_OK");
 }

@@ -100,6 +100,32 @@ pub struct HubGvisorPhaseEvidence {
     pub isolation_evidence_id: String,
 }
 
+/// A refusal retains only already verified phases; it never attests the refused phase.
+#[derive(Debug)]
+pub struct HubGvisorRefusal {
+    pub completed_phases: Vec<HubGvisorPhaseEvidence>,
+    reason: String,
+}
+
+impl std::fmt::Display for HubGvisorRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for HubGvisorRefusal {}
+
+fn retain_completed_phases(
+    error: anyhow::Error,
+    phases: &[HubGvisorPhaseEvidence],
+) -> anyhow::Error {
+    HubGvisorRefusal {
+        completed_phases: phases.to_vec(),
+        reason: format!("{error:#}"),
+    }
+    .into()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QualificationEvidenceV1 {
@@ -244,19 +270,22 @@ impl HubGvisorExecutor {
         // A bounded regular artifact is checked before any candidate execution.
         // This is an admission/postcondition limit, not an OS filesystem quota.
         let artifact = workspace.path().join("candidate");
-        let artifact_sha256 = bounded_artifact_digest(&artifact)?;
+        let artifact_sha256 = bounded_artifact_digest(&artifact)
+            .map_err(|error| retain_completed_phases(error, &compiled.phase_evidence))?;
         compiled.phase_evidence[0].artifact_sha256 = Some(artifact_sha256.clone());
-        let mut executed = self.execute_phase(PhaseExecution {
-            task_id: &format!("{task_id}-run"),
-            phase: "execution",
-            workspace: workspace.path(),
-            workspace_root: &workspace_root,
-            command: vec!["./candidate".into()],
-            timeout: self.config.timeout,
-            expected_evidence_id: &expected_evidence_id,
-            source_sha256: &source_sha256,
-            artifact_sha256: Some(artifact_sha256),
-        })?;
+        let mut executed = self
+            .execute_phase(PhaseExecution {
+                task_id: &format!("{task_id}-run"),
+                phase: "execution",
+                workspace: workspace.path(),
+                workspace_root: &workspace_root,
+                command: vec!["./candidate".into()],
+                timeout: self.config.timeout,
+                expected_evidence_id: &expected_evidence_id,
+                source_sha256: &source_sha256,
+                artifact_sha256: Some(artifact_sha256),
+            })
+            .map_err(|error| retain_completed_phases(error, &compiled.phase_evidence))?;
         compiled.phase_evidence.append(&mut executed.phase_evidence);
         executed.phase_evidence = compiled.phase_evidence;
         Ok(executed)
@@ -308,7 +337,7 @@ impl HubGvisorExecutor {
 
         let mut child = Command::new(&self.config.executable)
             .arg(&request_path)
-            .arg(&workspace_root)
+            .arg(workspace_root)
             .arg(&self.config.qualification_manifest)
             .arg(&self.config.qualification_receipt)
             .stdin(Stdio::null())
@@ -572,6 +601,29 @@ mod tests {
             .execute_rust_source_with_task("papers-test", "fn main() {}")
             .is_err());
         assert!(!root.path().join("run-called").exists());
+    }
+
+    #[test]
+    fn execution_refusal_retains_verified_compile_evidence() {
+        let (_root, config) = phase_fixture(0, false);
+        let script = std::fs::read_to_string(&config.executable)
+            .unwrap()
+            .replace("papers-test-run", "wrong-task-run");
+        std::fs::write(&config.executable, script).unwrap();
+        let error = HubGvisorExecutor::new(config)
+            .unwrap()
+            .execute_rust_source_with_task("papers-test", "fn main() {}")
+            .unwrap_err();
+        let phases = &error
+            .downcast_ref::<HubGvisorRefusal>()
+            .unwrap()
+            .completed_phases;
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].phase, "compilation");
+        assert_eq!(phases[0].timeout_ms, 700);
+        assert_eq!(phases[0].receipt_sha256.len(), 64);
+        assert_eq!(phases[0].artifact_sha256.as_ref().unwrap().len(), 64);
+        assert!(error.to_string().contains("qualified isolation contract"));
     }
 
     #[test]

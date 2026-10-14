@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::hub_gvisor::{HubGvisorConfig, HubGvisorExecutor, HubGvisorPhaseEvidence};
+use crate::hub_gvisor::{
+    HubGvisorConfig, HubGvisorExecutor, HubGvisorPhaseEvidence, HubGvisorRefusal,
+};
 use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
 
 /// Authority of an evaluation result.
@@ -128,7 +130,10 @@ impl Engineer {
                     runtime_secs: start.elapsed().as_secs_f64(),
                     authority: EvaluationAuthority::IsolatedRuntimeDiagnostic,
                     execution_evidence: None,
-                    execution_phases: Vec::new(),
+                    execution_phases: error
+                        .downcast_ref::<HubGvisorRefusal>()
+                        .map(|refusal| refusal.completed_phases.clone())
+                        .unwrap_or_default(),
                 },
             };
         }
