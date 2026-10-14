@@ -178,3 +178,29 @@ audit_persistent_workspace_quota_consumer_2026_10_14:
     - candidate3_actual_gates_mode000_review_then_integrated_qualification
     - finite_live_Engineer_byte_inode_ENOSPC_and_quarantine_controls
     - no_production_or_hardware_or_scientific_fitness_inference
+
+
+audit_persistent_quota_consumer_integrated_2026_10_14:
+  finding: PAPERS-01
+  status: original_audit_acceptance_resolved_with_documented_trusted_diagnostic_scope
+  pull_request: 17
+  candidate: d93cee7b32206284ca74fb78713bb575ca8d3896
+  integrated: e8606a8c692988d455bd33f6e57d42e207884217
+  owner_integrated: a1ce544d5a6027a224627b738268214775a56881
+  integrated_full_ci: 38525495706
+  integrated_real_runsc: 38525495679
+  integrated_Rust_tests: 234
+  dedicated_live: actually_executed_1_passed_0_ignored
+  durable_attempts_observed: 13
+  integrated_artifact_sha256: 39cb7101f2911836de80308ce7e971bf732320e60d8bb245e5dd6d12941f2135
+  review_fixes:
+    - bounded_tree_preflight_explicit_close_NotFound_before_accepting_task
+    - mode000_cleanup_refusal_retains_completed_facts_without_success
+    - real_file_format_gate_exact_PR_HEAD_and_push_before_diff
+  accepted_scope:
+    - persistent_whole_volume_total_byte_inode_bounds_no_free_space_reservation
+    - trusted_co_located_daemon_operator_provisioning_no_concurrent_resize
+    - local_Wasmtime_diagnostics_explicitly_trusted_only_not_hostile_OS_JIT
+    - hosted_Linux_CPU_proof_not_production_ARM64_or_hardware_performance
+    - generated_local_path_failclosed_no_scientific_or_holdout_promotion
+  evidence: orchestrator_control_branch_docs_audit_global_proofs_PAPERS_01_closed_owner91_consumer17_json
