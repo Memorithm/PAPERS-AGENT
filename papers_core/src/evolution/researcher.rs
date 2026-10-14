@@ -148,6 +148,17 @@ impl Researcher {
         if program.len() > 64 * 1024 {
             return false;
         }
+        // Before recursive Rust parsing, conservatively bound grammar density.
+        // Count even punctuation in comments/strings: false negatives are safe
+        // and select the preserved fallback rather than expanding host parsing.
+        if program
+            .bytes()
+            .filter(|byte| byte.is_ascii_punctuation())
+            .count()
+            > 512
+        {
+            return false;
+        }
         let Ok(file) = syn::parse_file(program) else {
             return false;
         };
@@ -280,6 +291,9 @@ impl Researcher {
         budget.set(budget.get() - 1);
         match expr {
             syn::Expr::Lit(_) | syn::Expr::Path(_) => false,
+            syn::Expr::Assign(assign) => {
+                Self::logging_argument_exercises_work(&assign.right, functions, depth + 1, budget)
+            }
             syn::Expr::Reference(reference) => {
                 Self::logging_argument_exercises_work(&reference.expr, functions, depth + 1, budget)
             }
@@ -733,6 +747,7 @@ mod tests {
         for driver in [
             "fn decoy() { println!(\"ok\"); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{}\", &\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{message}\", message = \"ok\"); } fn main() { decoy(); }",
             "fn decoy() { let borrowed = &\"ok\"; println!(\"{}\", borrowed); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{}\", (&(1 as u64))); } fn main() { decoy(); }",
             "fn decoy() { println!(\"{:?}\", (&[1, 2], -1)); } fn main() { decoy(); }",
@@ -746,6 +761,15 @@ mod tests {
             );
         }
         assert!(Researcher::is_valid(&format!("{algorithm} fn probe() {{ println!(\"{{}}\", algorithm(1)); }} fn main() {{ probe(); }}")));
+    }
+
+    #[test]
+    fn punctuation_dense_source_is_refused_before_recursive_parsing() {
+        let program = format!(
+            "fn solve() -> bool {{ {}true }} fn main() {{ solve(); }}",
+            "!".repeat(600)
+        );
+        assert!(!Researcher::is_valid(&program));
     }
 
     #[test]
