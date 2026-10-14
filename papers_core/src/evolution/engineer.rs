@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::hub_gvisor::{HubGvisorConfig, HubGvisorExecutor};
+use crate::hub_gvisor::{HubGvisorConfig, HubGvisorExecutor, HubGvisorPhaseEvidence};
 use crate::wasm_executor::{WasmConfig, WasmExecutor, WasmResult};
 
 /// Authority of an evaluation result.
@@ -42,6 +42,7 @@ pub struct EngineerOutput {
     pub authority: EvaluationAuthority,
     /// Verified owner evidence identity, never scientific or merge authority.
     pub execution_evidence: Option<String>,
+    pub execution_phases: Vec<HubGvisorPhaseEvidence>,
 }
 
 impl EngineerOutput {
@@ -117,6 +118,7 @@ impl Engineer {
                     runtime_secs: start.elapsed().as_secs_f64(),
                     authority: EvaluationAuthority::IsolatedRuntimeDiagnostic,
                     execution_evidence: Some(result.isolation_evidence_id),
+                    execution_phases: result.phase_evidence,
                 },
                 Err(error) => EngineerOutput {
                     success: false,
@@ -126,6 +128,7 @@ impl Engineer {
                     runtime_secs: start.elapsed().as_secs_f64(),
                     authority: EvaluationAuthority::IsolatedRuntimeDiagnostic,
                     execution_evidence: None,
+                    execution_phases: Vec::new(),
                 },
             };
         }
@@ -148,6 +151,7 @@ impl Engineer {
                         runtime_secs: start.elapsed().as_secs_f64(),
                         authority: EvaluationAuthority::WasmRuntimeDiagnostic,
                         execution_evidence: None,
+                        execution_phases: Vec::new(),
                     };
                 }
             }
@@ -178,6 +182,7 @@ impl Engineer {
             runtime_secs: start.elapsed().as_secs_f64(),
             authority: EvaluationAuthority::WasmRuntimeDiagnostic,
             execution_evidence: None,
+            execution_phases: Vec::new(),
         }
     }
 
@@ -242,6 +247,7 @@ impl Engineer {
                 runtime_secs: start.elapsed().as_secs_f64(),
                 authority: EvaluationAuthority::StructuralDiagnostic,
                 execution_evidence: None,
+                execution_phases: Vec::new(),
             }
         } else {
             let mut error = Vec::new();
@@ -259,6 +265,7 @@ impl Engineer {
                 runtime_secs: start.elapsed().as_secs_f64(),
                 authority: EvaluationAuthority::StructuralDiagnostic,
                 execution_evidence: None,
+                execution_phases: Vec::new(),
             }
         }
     }
@@ -309,6 +316,7 @@ mod tests {
             cpu_millis: 1000,
             memory_bytes: 512 * 1024 * 1024,
             pids_limit: 64,
+            compile_timeout: std::time::Duration::from_secs(60),
             timeout: std::time::Duration::from_secs(1),
             max_source_bytes: 4096,
             max_capture_bytes: 65536,
@@ -373,6 +381,7 @@ mod tests {
                 runtime_secs: 0.0,
                 authority: EvaluationAuthority::StructuralDiagnostic,
                 execution_evidence: None,
+                execution_phases: Vec::new(),
             }),
         );
         assert_eq!(output.authority, EvaluationAuthority::TaskOracle);

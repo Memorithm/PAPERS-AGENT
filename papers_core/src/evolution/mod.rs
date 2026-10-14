@@ -129,6 +129,12 @@ impl EvolutionLoop {
                     node.results
                         .insert("execution_evidence".into(), serde_json::json!(evidence));
                 }
+                if !result.execution_phases.is_empty() {
+                    node.results.insert(
+                        "execution_phases".into(),
+                        serde_json::json!(result.execution_phases),
+                    );
+                }
                 if let Some(ref err) = result.error {
                     node.results.insert("error".into(), serde_json::json!(err));
                 }
