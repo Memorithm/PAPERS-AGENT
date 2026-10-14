@@ -72,6 +72,9 @@ jobs:
           imported_guard=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path papers_core/Cargo.toml \
             | jq -er '.packages[] | select(.name == "papers_core") | .dependencies[] | select(.name == "hub-executor") | .source')
           test "$imported_guard" = 'git+https://github.com/Memorithm/scirust-hub.git?rev=dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4'
+          cargo metadata --locked --format-version 1 --manifest-path papers_core/Cargo.toml \
+            | jq -e --arg expected 'git+https://github.com/Memorithm/scirust-hub.git?rev=dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4#dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4' \
+              '[.packages[] | select(.name == "hub-executor" or .name == "hub-core" or .name == "hub-protocol")] | length == 3 and all(.[]; .source == $expected)'
       - name: Build exact Hub adapter
         working-directory: scirust-hub
         env:
