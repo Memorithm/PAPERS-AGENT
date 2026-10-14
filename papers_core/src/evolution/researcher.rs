@@ -18,16 +18,18 @@ const RESEARCHER_PROMPT: &str = "\
 {context_nodes}
 
 ## Requirements
-1. Write a SINGLE Rust function that solves the task
+1. Write a Rust function that solves the task AND an executable fn main()
 2. The code must be COMPLETE (all imports, all helper functions, all logic)
 3. The code must be self-contained
 4. Use only the Rust standard library
-5. Return ONLY valid JSON: {{\"program\": \"...\", \"motivation\": \"...\"}}
+5. Return ONLY valid JSON: {\"program\": \"...\", \"motivation\": \"...\"}
 6. The program field must contain the FULL source code as a string
+7. main() must call the candidate on an explicit bounded development example and print its output
+8. This harness is a runtime diagnostic, NOT a task oracle or empirical fitness claim
 
 Respond with JSON:
-{{\"motivation\": \"explain your approach in 1-2 sentences\", \
-\"program\": \"fn solve(input: &[i32]) -> Vec<i32> {{ input.to_vec() }}\"}}";
+{\"motivation\": \"explain your approach in 1-2 sentences\", \
+\"program\": \"fn solve(input: &[i32]) -> Vec<i32> { input.to_vec() } fn main() { println!(\\\"{:?}\\\", solve(&[1, 2])); }\"}";
 
 const DIFF_RESEARCHER_PROMPT: &str = "\
 ## Task Description
@@ -46,6 +48,9 @@ const DIFF_RESEARCHER_PROMPT: &str = "\
 
 ## Instructions
 You are modifying the parent program above. Produce localized, targeted changes. \
+Preserve an executable fn main() which calls the candidate on a bounded \
+development example; do not return a helper-only program or infer scientific \
+fitness from this diagnostic harness. \
 Respond as a JSON object with:
 - \"motivation\": Explanation of what you are changing and why.
 - \"program\": The COMPLETE modified program (not just the diff).
@@ -63,6 +68,12 @@ pub struct Researcher {
 }
 
 impl Researcher {
+    /// Deterministic development candidate with a real calling harness.
+    /// It supplies no task-oracle or scientific authority.
+    pub fn development_fallback(task_description: &str) -> ResearcherOutput {
+        Self::fallback_generation(task_description)
+    }
+
     pub fn new(model: &str) -> Self {
         Self {
             model: model.to_string(),
@@ -131,10 +142,9 @@ impl Researcher {
     }
 
     fn is_valid(program: &str) -> bool {
-        program.contains("fn ")
-            || program.contains("struct ")
-            || program.contains("impl ")
-            || program.contains("use ")
+        // This is only a protocol preflight, not Rust parsing or qualification.
+        // rustc still validates and executes the candidate inside the Hub sandbox.
+        program.contains("fn main(") || program.contains("fn main (")
     }
 
     fn clean_program(program: &str) -> String {
@@ -424,10 +434,65 @@ impl MctsNode {
                  task_description.chars().take(60).collect::<String>()))
         };
 
+        // Preserve each existing fallback algorithm and actually invoke it.
+        // These small development inputs are diagnostics, never locked data or
+        // an independent task oracle; Engineer assigns zero empirical fitness.
+        let invocation = match motivation.as_str() {
+            "Multi-head attention baseline" => "println!(\"{:?}\", attention(&[1.0, 0.0], &[1.0, 0.0], &[2.0, 3.0], 2));",
+            "Simple embedding projection" => "println!(\"{:?}\", embed(&[0], &[1.0, 2.0], 1, 2));",
+            "Simple RNN cell forward pass" => "println!(\"{:?}\", rnn_step(&[1.0], &[0.0], &[1.0], &[0.0]));",
+            "Simple 2D convolution baseline" => "println!(\"{:?}\", conv2d(&[1.0, 2.0, 3.0, 4.0], &[1.0], 2, 2, 1));",
+            "Simple GNN message passing layer" => "println!(\"{:?}\", message_passing(&[1.0, 2.0], &[0.0, 1.0, 1.0, 0.0], 2, 1));",
+            "Baseline sort optimization" => "println!(\"{:?}\", optimize(&mut [3, 1, 2]));",
+            "Hexagonal grid packing baseline" => "println!(\"{:?}\", place_circles(1));",
+            "Simple Q-learning agent baseline" => "let mut agent = QAgent::new(2, 2); agent.update(0, 0, 1.0, 1); println!(\"{}\", agent.act(0, 0.0));",
+            "Monte Carlo Tree Search baseline" => "println!(\"{}\", MctsNode::new().ucb1(1, 1.0));",
+            _ => "println!(\"{:?}\", solve(&[1, 2]));",
+        };
+        let program = format!("{program}\n\nfn main() {{ {invocation} }}\n");
+
         ResearcherOutput {
             motivation,
             program,
             diff_summary: String::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_only_generation_is_not_an_executable_candidate() {
+        assert!(!Researcher::is_valid("fn solve(x: i32) -> i32 { x }"));
+        assert!(Researcher::is_valid(
+            "fn solve(x: i32) -> i32 { x } fn main() { println!(\"{}\", solve(1)); }"
+        ));
+    }
+
+    #[test]
+    fn every_fallback_preserves_its_algorithm_and_adds_a_calling_harness() {
+        for (task, helper) in [
+            ("attention", "pub fn attention"),
+            ("embedding", "pub fn embed"),
+            ("rnn", "pub fn rnn_step"),
+            ("conv", "pub fn conv2d"),
+            ("graph", "pub fn message_passing"),
+            ("sort", "pub fn optimize"),
+            ("circle", "pub fn place_circles"),
+            ("agent", "pub struct QAgent"),
+            ("search", "pub struct MctsNode"),
+            ("generic", "pub fn solve"),
+        ] {
+            let output = Researcher::fallback_generation(task);
+            assert!(output.program.contains(helper), "{task}");
+            assert!(Researcher::is_valid(&output.program), "{task}");
+            assert!(
+                output.program.contains("fn main() { println!")
+                    || output.program.contains("fn main() { let mut agent"),
+                "{task}"
+            );
         }
     }
 }

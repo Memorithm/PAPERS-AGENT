@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use papers_core::evolution::{Engineer, EngineerOutput, EvaluationAuthority};
+use papers_core::evolution::{Engineer, EngineerOutput, EvaluationAuthority, Researcher};
 use papers_core::hub_gvisor::HubGvisorConfig;
 
 #[test]
@@ -27,12 +27,8 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
             max_capture_bytes: 64 * 1024,
         })
         .expect("qualified Hub gVisor configuration must be valid");
-    let result = engineer.execute(
-        r#"fn main() {
-    println!("PAPERS_HUB_GVISOR_LIVE_OK");
-}"#,
-        None::<fn(&str) -> EngineerOutput>,
-    );
+    let candidate = Researcher::development_fallback("generic development candidate");
+    let result = engineer.execute(&candidate.program, None::<fn(&str) -> EngineerOutput>);
     assert!(result.success, "{:?}", result.error);
     assert_eq!(
         result.authority,
@@ -44,4 +40,5 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         "PAPERS_GVISOR_EVIDENCE={}",
         result.execution_evidence.expect("verified owner evidence")
     );
+    println!("PAPERS_RESEARCHER_ENGINEER_ROUTE_OK");
 }
