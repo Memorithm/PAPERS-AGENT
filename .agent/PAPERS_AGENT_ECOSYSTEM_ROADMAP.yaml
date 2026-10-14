@@ -53,3 +53,24 @@ audit_shared_guard_2026_10_14:
     - aggregate_workspace_disk_quota_and_guest_PID_qualification
     - durable_reconciliation_after_ambiguous_Docker_creation
     - no_host_generated_source_or_external_empirical_promotion
+
+audit_shared_guard_integrated_2026_10_14:
+  finding: PAPERS-01
+  status: merged_consumer_scope_qualified_original_acceptance_incomplete
+  pull_request: 14
+  candidate: 4771400e205c3f0f75c94b073bbee7613f6fbf16
+  merge_commit: 773b31c2a3a26eabe16e4a89c8be2cc06be999bf
+  owner_commit: dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4
+  integrated_full_ci: 38504600115
+  integrated_real_runsc: 38504600169
+  integrated_Rust_tests: 231
+  dedicated_live_test: actually_executed_not_ignored
+  integrated_artifact_sha256: 47e0850b1746fba2959d6fb5242d84847faad51944604ffe9fa6d5ad1feb2a31
+  review_fixes:
+    - dependency_only_changes_trigger_live_gate
+    - exact_resolved_Hub_graph_precise_commits_match_qualified_CLI
+  result: shared_bounded_guard_and_retained_refusals_with_zero_fitness_authority_preserved
+  remaining:
+    - aggregate_workspace_quota_and_guest_PID_qualification
+    - durable_ambiguous_creation_quarantine_reconciliation
+    - no_global_finding_closure_or_empirical_promotion
