@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::process::Command;
+use std::time::{Duration, Instant};
 
 use papers_core::evolution::{Engineer, EngineerOutput, EvaluationAuthority, Researcher};
 use papers_core::hub_gvisor::{HubGvisorConfig, HubGvisorExecutor};
@@ -23,6 +24,27 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         timeout: Duration::from_secs(120),
         max_source_bytes: 64 * 1024,
         max_capture_bytes: 64 * 1024,
+    };
+    let inspect = |task_id: &str| {
+        let mut command = Command::new(&config.executable);
+        command
+            .arg("--inspect")
+            .arg(task_id)
+            .arg(&config.workspace_root);
+        let output = hub_executor::execution_guard::execute_guarded_command(
+            &mut command,
+            Instant::now() + Duration::from_secs(5),
+            64 * 1024,
+        )
+        .unwrap();
+        assert!(output.status.success() && !output.timed_out);
+        assert!(!output.stdout.truncated && !output.stderr.truncated);
+        let record: serde_json::Value = serde_json::from_slice(&output.stdout.bytes).unwrap();
+        assert_eq!(record["task_id"], task_id);
+        assert_eq!(record["state"], "cleaned");
+        assert_eq!(record["owned_handle"].as_str().unwrap().len(), 64);
+        println!("PAPERS_HUB_DURABLE_ATTEMPT={record}");
+        record
     };
     let engineer = Engineer::new(120)
         .with_hub_gvisor(config.clone())
@@ -49,6 +71,9 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         result.execution_phases[0].artifact_sha256,
         result.execution_phases[1].artifact_sha256
     );
+    let compilation_attempt = inspect(&result.execution_phases[0].task_id);
+    let execution_attempt = inspect(&result.execution_phases[1].task_id);
+    assert_ne!(compilation_attempt["attempt_id"], execution_attempt["attempt_id"]);
     println!(
         "PAPERS_GVISOR_PHASES={}",
         serde_json::to_string(&result.execution_phases).unwrap()
@@ -67,6 +92,7 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     assert_eq!(refused.phase_evidence.len(), 1);
     assert_eq!(refused.phase_evidence[0].phase, "compilation");
     assert!(!refused.timed_out);
+    inspect(&refused.phase_evidence[0].task_id);
     println!(
         "PAPERS_GVISOR_COMPILE_REFUSAL={}",
         serde_json::to_string(&refused.phase_evidence).unwrap()
@@ -93,6 +119,9 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     );
     assert_eq!(timed.phase_evidence[0].timeout_ms, 60_000);
     assert_eq!(timed.phase_evidence[1].timeout_ms, 3_000);
+    for phase in &timed.phase_evidence {
+        inspect(&phase.task_id);
+    }
     println!(
         "PAPERS_GVISOR_RUNTIME_TIMEOUT={}",
         serde_json::to_string(&timed.phase_evidence).unwrap()
@@ -103,7 +132,7 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
-    let mut output_config = config;
+    let mut output_config = config.clone();
     output_config.max_capture_bytes = 1024;
     let refused = Engineer::new(120)
         .with_hub_gvisor(output_config)
@@ -135,6 +164,14 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     assert!(retained[0].join("candidate").is_file());
     assert!(retained[0].join("compilation-request.json").is_file());
     assert!(retained[0].join("execution-request.json").is_file());
+    // Process cleanup is not overall task success: admission still refuses
+    // truncated output and preserves the task workspace/completed compile facts.
+    inspect(&refused.execution_phases[0].task_id);
+    let execution_request: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(retained[0].join("execution-request.json")).unwrap(),
+    )
+    .unwrap();
+    inspect(execution_request["task_id"].as_str().unwrap());
     println!(
         "PAPERS_GVISOR_REFUSAL_COMPLETED_PHASES={}",
         serde_json::to_string(&refused.execution_phases).unwrap()
