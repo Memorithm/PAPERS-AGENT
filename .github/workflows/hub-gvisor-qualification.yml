@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Memorithm/scirust-hub
-          ref: 60f000d9a4f021cb14b9fe2cd68999408b797dd8
+          ref: dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4
           path: scirust-hub
           persist-credentials: false
       - name: Install Rust
@@ -62,13 +62,13 @@ jobs:
           set -euo pipefail
           qualification=papers_core/qualification/hub-gvisor/qualification.json
           receipt=papers_core/qualification/hub-gvisor/receipt.json
-          test "$(jq -r .source_commit "$qualification")" = 60f000d9a4f021cb14b9fe2cd68999408b797dd8
-          test "$(jq -r .workflow_run_id "$qualification")" = 38469040003
+          test "$(jq -r .source_commit "$qualification")" = dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4
+          test "$(jq -r .workflow_run_id "$qualification")" = 38502405612
           test "$(jq -r .receipt_sha256 "$qualification")" = "$(sha256sum "$receipt" | cut -d' ' -f1)"
       - name: Build exact Hub adapter
         working-directory: scirust-hub
         env:
-          SCIRUST_HUB_SOURCE_COMMIT: 60f000d9a4f021cb14b9fe2cd68999408b797dd8
+          SCIRUST_HUB_SOURCE_COMMIT: dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4
         run: cargo build --locked -p hub-executor --bin scirust-hub-gvisor
       - name: Execute PAPERS live consumer through runsc
         working-directory: papers_core
