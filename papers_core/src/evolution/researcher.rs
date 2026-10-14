@@ -185,28 +185,39 @@ impl Researcher {
         let Some(name) = path.path.get_ident() else {
             return false;
         };
+        let budget = std::cell::Cell::new(4096usize);
         name != "main"
             && functions.iter().any(|function| {
                 function.sig.ident == *name
-                    && Self::body_exercises_work(&function.block, &functions, 0)
+                    && Self::body_exercises_work(&function.block, &functions, 0, &budget)
             })
             && call.args.iter().all(Self::literal_probe_input)
+            && budget.get() > 0
     }
 
     // Refuse logging-only helpers, including chains of such helpers. This is
     // bounded syntactic activity detection, not proof of algorithm semantics.
-    fn body_exercises_work(block: &syn::Block, functions: &[&syn::ItemFn], depth: usize) -> bool {
-        if depth >= 16 {
+    fn body_exercises_work(
+        block: &syn::Block,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        if depth >= 16 || budget.get() == 0 {
             return false;
         }
+        budget.set(budget.get() - 1);
         for stmt in &block.stmts {
             let active = match stmt {
-                syn::Stmt::Expr(expr, _) => Self::expr_exercises_work(expr, functions, depth),
-                syn::Stmt::Local(local) => local
-                    .init
-                    .as_ref()
-                    .is_some_and(|init| Self::expr_exercises_work(&init.expr, functions, depth)),
-                syn::Stmt::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth),
+                syn::Stmt::Expr(expr, _) => {
+                    Self::expr_exercises_work(expr, functions, depth, budget)
+                }
+                syn::Stmt::Local(local) => local.init.as_ref().is_some_and(|init| {
+                    Self::expr_exercises_work(&init.expr, functions, depth, budget)
+                }),
+                syn::Stmt::Macro(mac) => {
+                    Self::macro_exercises_work(&mac.mac, functions, depth, budget)
+                }
                 syn::Stmt::Item(_) => false,
             };
             if active {
@@ -219,8 +230,17 @@ impl Researcher {
         false
     }
 
-    fn macro_exercises_work(mac: &syn::Macro, functions: &[&syn::ItemFn], depth: usize) -> bool {
+    fn macro_exercises_work(
+        mac: &syn::Macro,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
         use syn::parse::Parser;
+        if depth >= 16 || budget.get() == 0 {
+            return false;
+        }
+        budget.set(budget.get() - 1);
         let Some(name) = mac
             .path
             .segments
@@ -244,7 +264,7 @@ impl Researcher {
             return false;
         };
         args.iter()
-            .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth))
+            .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth, budget))
     }
 
     // Borrowing/casting/grouping a stored value does not exercise a candidate.
@@ -252,43 +272,49 @@ impl Researcher {
         expr: &syn::Expr,
         functions: &[&syn::ItemFn],
         depth: usize,
+        budget: &std::cell::Cell<usize>,
     ) -> bool {
-        if depth >= 16 {
+        if depth >= 16 || budget.get() == 0 {
             return false;
         }
+        budget.set(budget.get() - 1);
         match expr {
             syn::Expr::Lit(_) | syn::Expr::Path(_) => false,
             syn::Expr::Reference(reference) => {
-                Self::logging_argument_exercises_work(&reference.expr, functions, depth + 1)
+                Self::logging_argument_exercises_work(&reference.expr, functions, depth + 1, budget)
             }
             syn::Expr::Paren(paren) => {
-                Self::logging_argument_exercises_work(&paren.expr, functions, depth + 1)
+                Self::logging_argument_exercises_work(&paren.expr, functions, depth + 1, budget)
             }
             syn::Expr::Group(group) => {
-                Self::logging_argument_exercises_work(&group.expr, functions, depth + 1)
+                Self::logging_argument_exercises_work(&group.expr, functions, depth + 1, budget)
             }
             syn::Expr::Cast(cast) => {
-                Self::logging_argument_exercises_work(&cast.expr, functions, depth + 1)
+                Self::logging_argument_exercises_work(&cast.expr, functions, depth + 1, budget)
             }
             syn::Expr::Unary(unary) => {
-                Self::logging_argument_exercises_work(&unary.expr, functions, depth + 1)
+                Self::logging_argument_exercises_work(&unary.expr, functions, depth + 1, budget)
             }
-            syn::Expr::Tuple(tuple) => tuple
-                .elems
-                .iter()
-                .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth + 1)),
-            syn::Expr::Array(array) => array
-                .elems
-                .iter()
-                .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth + 1)),
-            _ => Self::expr_exercises_work(expr, functions, depth + 1),
+            syn::Expr::Tuple(tuple) => tuple.elems.iter().any(|expr| {
+                Self::logging_argument_exercises_work(expr, functions, depth + 1, budget)
+            }),
+            syn::Expr::Array(array) => array.elems.iter().any(|expr| {
+                Self::logging_argument_exercises_work(expr, functions, depth + 1, budget)
+            }),
+            _ => Self::expr_exercises_work(expr, functions, depth + 1, budget),
         }
     }
 
-    fn expr_exercises_work(expr: &syn::Expr, functions: &[&syn::ItemFn], depth: usize) -> bool {
-        if depth >= 16 {
+    fn expr_exercises_work(
+        expr: &syn::Expr,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+        budget: &std::cell::Cell<usize>,
+    ) -> bool {
+        if depth >= 16 || budget.get() == 0 {
             return false;
         }
+        budget.set(budget.get() - 1);
         match expr {
             syn::Expr::Call(call) => {
                 if let syn::Expr::Path(path) = call.func.as_ref() {
@@ -301,35 +327,44 @@ impl Researcher {
                                 &function.block,
                                 functions,
                                 depth + 1,
+                                budget,
                             );
                         }
                     }
                 }
                 false
             }
-            syn::Expr::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth),
+            syn::Expr::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth, budget),
             syn::Expr::Block(block) => {
-                Self::body_exercises_work(&block.block, functions, depth + 1)
+                Self::body_exercises_work(&block.block, functions, depth + 1, budget)
             }
             syn::Expr::Return(ret) => ret
                 .expr
                 .as_ref()
-                .is_some_and(|expr| Self::expr_exercises_work(expr, functions, depth)),
-            syn::Expr::Paren(paren) => Self::expr_exercises_work(&paren.expr, functions, depth + 1),
-            syn::Expr::Group(group) => Self::expr_exercises_work(&group.expr, functions, depth + 1),
-            syn::Expr::Reference(reference) => {
-                Self::expr_exercises_work(&reference.expr, functions, depth + 1)
+                .is_some_and(|expr| Self::expr_exercises_work(expr, functions, depth, budget)),
+            syn::Expr::Paren(paren) => {
+                Self::expr_exercises_work(&paren.expr, functions, depth + 1, budget)
             }
-            syn::Expr::Cast(cast) => Self::expr_exercises_work(&cast.expr, functions, depth + 1),
-            syn::Expr::Unary(unary) => Self::expr_exercises_work(&unary.expr, functions, depth + 1),
+            syn::Expr::Group(group) => {
+                Self::expr_exercises_work(&group.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Reference(reference) => {
+                Self::expr_exercises_work(&reference.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Cast(cast) => {
+                Self::expr_exercises_work(&cast.expr, functions, depth + 1, budget)
+            }
+            syn::Expr::Unary(unary) => {
+                Self::expr_exercises_work(&unary.expr, functions, depth + 1, budget)
+            }
             syn::Expr::Tuple(tuple) => tuple
                 .elems
                 .iter()
-                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1)),
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1, budget)),
             syn::Expr::Array(array) => array
                 .elems
                 .iter()
-                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1)),
+                .any(|expr| Self::expr_exercises_work(expr, functions, depth + 1, budget)),
             syn::Expr::Lit(_) | syn::Expr::Closure(_) | syn::Expr::Async(_) => false,
             // Data access, arithmetic, method calls and control flow are activity;
             // only runtime/independent oracles can qualify their actual meaning.
@@ -711,6 +746,22 @@ mod tests {
             );
         }
         assert!(Researcher::is_valid(&format!("{algorithm} fn probe() {{ println!(\"{{}}\", algorithm(1)); }} fn main() {{ probe(); }}")));
+    }
+
+    #[test]
+    fn branching_no_work_call_graph_is_budgeted() {
+        let mut program = String::from("fn leaf() { println!(\"ok\"); }");
+        let mut child = String::from("leaf");
+        for level in 0..12 {
+            let name = format!("branch_{level}");
+            program.push_str(&format!(
+                "fn {name}() {{ {} }}",
+                format!("{child}();").repeat(12)
+            ));
+            child = name;
+        }
+        program.push_str(&format!("fn main() {{ {child}(); }}"));
+        assert!(!Researcher::is_valid(&program));
     }
 
     #[test]
