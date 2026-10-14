@@ -98,6 +98,11 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         serde_json::to_string(&timed.phase_evidence).unwrap()
     );
 
+    let workspace_root = config.workspace_root.clone();
+    let prior_workspaces: Vec<_> = std::fs::read_dir(&workspace_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
     let mut output_config = config;
     output_config.max_capture_bytes = 1024;
     let refused = Engineer::new(120)
@@ -119,9 +124,21 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
         error.to_string().contains("qualified isolation contract"),
         "{error:#}"
     );
+    assert!(error.to_string().contains("retained for quarantine"));
+    let retained: Vec<_> = std::fs::read_dir(&workspace_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| !prior_workspaces.contains(path))
+        .collect();
+    assert_eq!(retained.len(), 1, "refused task must retain its workspace");
+    assert!(retained[0].join("main.rs").is_file());
+    assert!(retained[0].join("candidate").is_file());
+    assert!(retained[0].join("compilation-request.json").is_file());
+    assert!(retained[0].join("execution-request.json").is_file());
     println!(
         "PAPERS_GVISOR_REFUSAL_COMPLETED_PHASES={}",
         serde_json::to_string(&refused.execution_phases).unwrap()
     );
     println!("PAPERS_GVISOR_OUTPUT_LIMIT_REFUSAL_OK");
+    println!("PAPERS_GVISOR_REFUSAL_QUARANTINE_OK");
 }

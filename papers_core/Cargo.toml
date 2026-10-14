@@ -41,6 +41,7 @@ tempfile = "3.8"
 walkdir = "2"
 sha2 = "0.10"
 syn = { version = "=2.0.119", features = ["full"] }
+hub-executor = { git = "https://github.com/Memorithm/scirust-hub.git", rev = "dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4" }
 
 # SciRust is intentionally not a build-time dependency of PAPERS core.
 # Scientific/NAS/symbolic workloads cross a versioned runtime boundary toward

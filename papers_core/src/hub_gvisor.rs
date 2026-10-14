@@ -3,11 +3,11 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread::{self, JoinHandle};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, ensure, Context, Result};
+use hub_executor::execution_guard::execute_guarded_command;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -54,8 +54,8 @@ impl HubGvisorConfig {
             ("timeout", self.timeout),
         ] {
             ensure!(
-                (1..=u128::from(u64::MAX)).contains(&timeout.as_millis()),
-                "{name} must be representable in non-zero milliseconds"
+                (1..=3_600_000).contains(&timeout.as_millis()),
+                "{name} must be between one millisecond and one hour"
             );
             ensure!(
                 timeout
@@ -248,7 +248,7 @@ impl HubGvisorExecutor {
             .context("write isolated Rust candidate")?;
 
         let source_sha256 = format!("{:x}", Sha256::digest(source.as_bytes()));
-        let mut compiled = self.execute_phase(PhaseExecution {
+        let compiled_result = self.execute_phase(PhaseExecution {
             task_id: &format!("{task_id}-compile"),
             phase: "compilation",
             workspace: workspace.path(),
@@ -263,29 +263,47 @@ impl HubGvisorExecutor {
             expected_evidence_id: &expected_evidence_id,
             source_sha256: &source_sha256,
             artifact_sha256: None,
-        })?;
+        });
+        let mut compiled = match compiled_result {
+            Ok(result) => result,
+            Err(error) => return Err(quarantine_refusal(error, workspace)),
+        };
         if !compiled.success {
             return Ok(compiled);
         }
         // A bounded regular artifact is checked before any candidate execution.
         // This is an admission/postcondition limit, not an OS filesystem quota.
         let artifact = workspace.path().join("candidate");
-        let artifact_sha256 = bounded_artifact_digest(&artifact)
-            .map_err(|error| retain_completed_phases(error, &compiled.phase_evidence))?;
+        let artifact_sha256 = match bounded_artifact_digest(&artifact) {
+            Ok(digest) => digest,
+            Err(error) => {
+                return Err(quarantine_refusal(
+                    retain_completed_phases(error, &compiled.phase_evidence),
+                    workspace,
+                ))
+            }
+        };
         compiled.phase_evidence[0].artifact_sha256 = Some(artifact_sha256.clone());
-        let mut executed = self
-            .execute_phase(PhaseExecution {
-                task_id: &format!("{task_id}-run"),
-                phase: "execution",
-                workspace: workspace.path(),
-                workspace_root: &workspace_root,
-                command: vec!["./candidate".into()],
-                timeout: self.config.timeout,
-                expected_evidence_id: &expected_evidence_id,
-                source_sha256: &source_sha256,
-                artifact_sha256: Some(artifact_sha256),
-            })
-            .map_err(|error| retain_completed_phases(error, &compiled.phase_evidence))?;
+        let executed_result = self.execute_phase(PhaseExecution {
+            task_id: &format!("{task_id}-run"),
+            phase: "execution",
+            workspace: workspace.path(),
+            workspace_root: &workspace_root,
+            command: vec!["./candidate".into()],
+            timeout: self.config.timeout,
+            expected_evidence_id: &expected_evidence_id,
+            source_sha256: &source_sha256,
+            artifact_sha256: Some(artifact_sha256),
+        });
+        let mut executed = match executed_result {
+            Ok(result) => result,
+            Err(error) => {
+                return Err(quarantine_refusal(
+                    retain_completed_phases(error, &compiled.phase_evidence),
+                    workspace,
+                ))
+            }
+        };
         compiled.phase_evidence.append(&mut executed.phase_evidence);
         executed.phase_evidence = compiled.phase_evidence;
         Ok(executed)
@@ -335,35 +353,23 @@ impl HubGvisorExecutor {
         let request_sha256 = format!("{:x}", Sha256::digest(&request_bytes));
         std::fs::write(&request_path, request_bytes).context("write Hub gVisor request")?;
 
-        let mut child = Command::new(&self.config.executable)
+        let mut command = Command::new(&self.config.executable);
+        command
             .arg(&request_path)
             .arg(workspace_root)
             .arg(&self.config.qualification_manifest)
-            .arg(&self.config.qualification_receipt)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("start qualified SciRust Hub gVisor adapter")?;
-        let stdout = spawn_reader(child.stdout.take(), MAX_CAPTURE_BYTES);
-        let stderr = spawn_reader(child.stderr.take(), MAX_CAPTURE_BYTES);
-        let status = loop {
-            match child.try_wait()? {
-                Some(status) => break status,
-                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-                None => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(anyhow!(
-                        "SciRust Hub gVisor adapter exceeded its outer deadline"
-                    ));
-                }
-            }
-        };
-        let (stdout, stdout_truncated) = join_reader(stdout)?;
-        let (stderr, stderr_truncated) = join_reader(stderr)?;
+            .arg(&self.config.qualification_receipt);
+        let guarded = execute_guarded_command(&mut command, deadline, MAX_CAPTURE_BYTES)
+            .map_err(|error| anyhow!("qualified Hub adapter supervision failed: {error}"))?;
         ensure!(
-            !stdout_truncated && !stderr_truncated,
+            !guarded.timed_out,
+            "SciRust Hub gVisor adapter exceeded its outer deadline"
+        );
+        let status = guarded.status;
+        let stdout = guarded.stdout.bytes;
+        let stderr = guarded.stderr.bytes;
+        ensure!(
+            !guarded.stdout.truncated && !guarded.stderr.truncated,
             "SciRust Hub adapter output exceeded PAPERS bounds"
         );
         let outer_stderr = String::from_utf8_lossy(&stderr);
@@ -431,34 +437,10 @@ fn lower_hex(value: &str, length: usize) -> bool {
             .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
 }
 
-fn spawn_reader<R: Read + Send + 'static>(
-    pipe: Option<R>,
-    limit: usize,
-) -> JoinHandle<std::io::Result<(Vec<u8>, bool)>> {
-    thread::spawn(move || {
-        let mut pipe = pipe.ok_or_else(|| std::io::Error::other("Hub capture pipe unavailable"))?;
-        let mut captured = Vec::with_capacity(limit.min(8192));
-        let mut buffer = [0_u8; 8192];
-        let mut truncated = false;
-        loop {
-            let count = pipe.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            let remaining = limit.saturating_sub(captured.len());
-            let kept = remaining.min(count);
-            captured.extend_from_slice(&buffer[..kept]);
-            truncated |= kept < count;
-        }
-        Ok((captured, truncated))
-    })
-}
-
-fn join_reader(reader: JoinHandle<std::io::Result<(Vec<u8>, bool)>>) -> Result<(Vec<u8>, bool)> {
-    reader
-        .join()
-        .map_err(|_| anyhow!("Hub capture reader panicked"))?
-        .context("read Hub adapter output")
+fn quarantine_refusal(error: anyhow::Error, workspace: tempfile::TempDir) -> anyhow::Error {
+    let retained = workspace.keep();
+    let reason = format!("{error:#}");
+    error.context(format!("{reason}; executor workspace retained for quarantine/reconciliation at {}; no automatic deletion or replay", retained.display()))
 }
 
 #[cfg(test)]
@@ -582,7 +564,12 @@ mod tests {
     #[test]
     fn phase_deadline_overflow_and_submillisecond_budget_fail_before_spawn() {
         let (_root, config) = phase_fixture(0, false);
-        for duration in [Duration::MAX, Duration::from_nanos(1), Duration::ZERO] {
+        for duration in [
+            Duration::MAX,
+            Duration::from_nanos(1),
+            Duration::ZERO,
+            Duration::from_millis(3_600_001),
+        ] {
             let mut bad = config.clone();
             bad.compile_timeout = duration;
             assert!(HubGvisorExecutor::new(bad).is_err());
@@ -624,6 +611,30 @@ mod tests {
         assert_eq!(phases[0].receipt_sha256.len(), 64);
         assert_eq!(phases[0].artifact_sha256.as_ref().unwrap().len(), 64);
         assert!(error.to_string().contains("qualified isolation contract"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn detached_adapter_pipe_refusal_preserves_workspace() {
+        let (root, config) = phase_fixture(0, false);
+        std::fs::write(&config.executable,
+            "#!/bin/sh\nGUARD_READY=\"$(dirname \"$1\")/ready\"; export GUARD_READY\nsetsid sh -c 'printf ready > \"$GUARD_READY\"; exec sleep 3' &\nwhile [ ! -e \"$GUARD_READY\" ]; do sleep 0.01; done\nprintf '{}'\nexit 0\n"
+        ).unwrap();
+        let started = Instant::now();
+        let error = HubGvisorExecutor::new(config)
+            .unwrap()
+            .execute_rust_source_with_task("papers-test", "fn main() {}")
+            .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(error.to_string().contains("capture incomplete"));
+        assert!(error.to_string().contains("quarantine/reconciliation"));
+        let retained = std::fs::read_dir(root.path().join("workspaces"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(retained.len(), 1);
+        assert!(retained[0].join("main.rs").is_file());
+        assert!(retained[0].join("compilation-request.json").is_file());
     }
 
     #[test]
