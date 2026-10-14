@@ -48,7 +48,10 @@ impl HubGvisorConfig {
             self.memory_bytes >= 16 * 1024 * 1024,
             "memory bound is too small"
         );
-        ensure!(self.pids_limit > 0, "pids_limit must be non-zero");
+        ensure!(
+            (1..=4096).contains(&self.pids_limit),
+            "pids_limit must be between one and 4096"
+        );
         for (name, timeout) in [
             ("compile_timeout", self.compile_timeout),
             ("timeout", self.timeout),
@@ -544,6 +547,29 @@ mod tests {
             serde_json::json!(["rustc", "main.rs", "-o", "candidate"])
         );
         assert_eq!(run["command"], serde_json::json!(["./candidate"]));
+        for request in [&compile, &run] {
+            assert_eq!(request["pids_limit"], 64);
+            // The qualified owner defaults guest NPROC to the unchanged wire
+            // budget; PAPERS does not silently widen the host task ceiling.
+            assert!(request.get("guest_pids_limit").is_none());
+        }
+    }
+
+    #[test]
+    fn pid_budget_matches_owner_before_workspace_or_dispatch() {
+        let (root, config) = phase_fixture(0, false);
+        for invalid in [0, 4097, u64::MAX] {
+            let mut bad = config.clone();
+            bad.pids_limit = invalid;
+            assert!(HubGvisorExecutor::new(bad).is_err());
+        }
+        for valid in [1, 4096] {
+            let mut accepted = config.clone();
+            accepted.pids_limit = valid;
+            assert!(HubGvisorExecutor::new(accepted).is_ok());
+        }
+        assert_eq!(std::fs::read_dir(&config.workspace_root).unwrap().count(), 0);
+        assert!(!root.path().join("run-called").exists());
     }
 
     #[test]
