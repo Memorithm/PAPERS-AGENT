@@ -134,3 +134,26 @@ audit_durable_owner_attempt_adoption_2026_10_14:
     - candidate3gates_review_then_exact_integrated_qualification
     - aggregate_workspace_OS_quota
     - no_production_deployment_scientific_or_hardware_claim
+
+audit_durable_owner_consumer_integrated_2026_10_14:
+  finding: PAPERS-01
+  status: merged_scoped_contract_qualified_aggregate_quota_still_missing
+  owner_pull_request: Memorithm/scirust-hub#90
+  owner_commit: cf5233af12499605bd57d9d613b3cddc3bc39d08
+  consumer_pull_request: 16
+  consumer_candidate: c7afad51693cd4389b497b755b9a66d4b04c3f4a
+  consumer_commit: 0c0bbab15bf75790a370a9802171e75034cd7f38
+  consumer_integrated_full_ci: 38518447039
+  consumer_integrated_real_runsc: 38518447080
+  consumer_Rust_tests: 232
+  dedicated_live: actually_executed_1_passed_0_ignored
+  durable_attempts_observed: 7
+  integrated_archive_sha256: d20a80c3efce9d2fabad030bad9d945de1c76ee46347e3d996da74cb1eb27996
+  result: exact4package_owner_graph_CLI_and_recovery_proofs_adopted_without_semantic_success_or_scientific_promotion
+  review_fixes:
+    - full_lock_bytes_local_equal_remote_and_no_existing_version_changes
+    - recovery_shell_continuations_corrected_no_predicate_removed
+  remaining:
+    - actual_aggregate_multi_file_and_inode_workspace_OS_quota
+    - persistent_phase_artifacts_and_quarantine_journal_outside_writable_volume
+    - no_production_adoption_hardware_or_scientific_fitness_claim
