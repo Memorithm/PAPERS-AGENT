@@ -1,7 +1,7 @@
 schema_version: 1
 kind: papers_agent_ecosystem_roadmap
 status: active
-last_updated: "2026-09-27"
+last_updated: "2026-10-14"
 repository: Memorithm/PAPERS-AGENT
 merge_policy: never_merge_this_file_to_default_branch_unless_user_explicitly_requests
 mission:
@@ -157,3 +157,24 @@ audit_durable_owner_consumer_integrated_2026_10_14:
     - actual_aggregate_multi_file_and_inode_workspace_OS_quota
     - persistent_phase_artifacts_and_quarantine_journal_outside_writable_volume
     - no_production_adoption_hardware_or_scientific_fitness_claim
+
+
+audit_persistent_workspace_quota_consumer_2026_10_14:
+  finding: PAPERS-01
+  status: candidate_review_fixed_CI_pending_not_finding_closure
+  pull_request: 17
+  candidate: 72e897d0582dfe7b82a423909eb29ceb14521d47
+  owner_integrated: a1ce544d5a6027a224627b738268214775a56881
+  owner_run: 38522621768
+  owner_archive_sha256: 6027dc5df69377f3df82337f3a68d6beb4804d171751f80cedb362d2fcebd89b
+  contracts:
+    - mandatory_explicit_persistent_volume_and_byte_inode_ceiling
+    - private_task_subdirectory_only_mounted_to_guest
+    - phase_request_inputs_outside_guest_volume_private0700
+    - bounded_cleanup_inspection_then_explicit_close_and_verified_absence
+    - inaccessible_tree_cleanup_refusal_retains_task_inputs_and_completed_facts
+    - domain_refusal_not_overall_success_or_scientific_authority
+  remaining:
+    - candidate3_actual_gates_mode000_review_then_integrated_qualification
+    - finite_live_Engineer_byte_inode_ENOSPC_and_quarantine_controls
+    - no_production_or_hardware_or_scientific_fitness_inference
