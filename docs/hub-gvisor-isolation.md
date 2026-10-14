@@ -87,3 +87,16 @@ gate must demonstrate its own byte/inode ENOSPC cases through Engineer, matching
 artifact digests across its two phases, unchanged failed compilation/runtime
 timeout/output-refusal retention, and cleaned metadata for each dispatched phase.
 No fixture establishes task correctness, production adoption or hardware fitness.
+
+Before accepting any completed task, PAPERS checks the owned guest tree without
+following symlinks (4,096 entries, depth32, one-second inspection budget), checks
+directory accessibility and same filesystem, explicitly closes the task directory
+and verifies NotFound. An inaccessible mode000 directory or budget exhaustion
+refuses cleanup BEFORE deletion, retains both task and private inputs, and keeps
+all already verified phases without reporting overall success. A subsequent
+close/absence failure also refuses, retaining remaining paths and private inputs;
+it does not promise that a failed deletion preserved every guest file. Only the
+owning operator may reconcile a retained failed task; no automatic retry/replay
+or permission escalation is performed. The real live gate exercises mode000
+residue through Engineer, requires failure/zero fitness and two cleaned owner
+attempts, and does not confuse container cleanup with filesystem reclamation.

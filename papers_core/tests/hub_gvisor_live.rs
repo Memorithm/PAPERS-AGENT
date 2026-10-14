@@ -235,4 +235,19 @@ fn main() {{
         println!("PAPERS_GVISOR_QUOTA_{mode}={}", serde_json::to_string(&probe.execution_phases).unwrap());
     }
     println!("PAPERS_REAL_AGGREGATE_BYTES_INODES_PRIVATE_PHASE_INPUTS_OK");
+    let blocked = Engineer::new(120).with_hub_gvisor(config.clone()).unwrap().execute(
+        r#"fn main() {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::create_dir("sealed").unwrap();
+            std::fs::write("sealed/residue", "owned quota probe").unwrap();
+            std::fs::set_permissions("sealed", std::fs::Permissions::from_mode(0o000)).unwrap();
+        }"#,
+        None::<fn(&str) -> EngineerOutput>,
+    );
+    assert!(!blocked.success && blocked.score == 0.0 && !blocked.is_empirically_validated());
+    assert!(blocked.error.as_ref().unwrap().contains("cleanup refused"));
+    assert_eq!(blocked.execution_phases.len(), 2);
+    for phase in &blocked.execution_phases { inspect(&phase.task_id); }
+    println!("PAPERS_GVISOR_CLEANUP_REFUSAL={}", serde_json::to_string(&blocked.execution_phases).unwrap());
+    println!("PAPERS_REAL_INACCESSIBLE_TREE_REFUSES_SUCCESS_OK");
 }

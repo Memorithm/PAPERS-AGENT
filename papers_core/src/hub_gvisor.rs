@@ -293,7 +293,7 @@ impl HubGvisorExecutor {
             Err(error) => return Err(quarantine_refusal(error, workspace, control)),
         };
         if !compiled.success {
-            return Ok(compiled);
+            return finish_task(compiled, workspace, control);
         }
         // A bounded regular artifact is checked before any candidate execution.
         // This is an admission/postcondition limit, not an OS filesystem quota.
@@ -333,7 +333,7 @@ impl HubGvisorExecutor {
         };
         compiled.phase_evidence.append(&mut executed.phase_evidence);
         executed.phase_evidence = compiled.phase_evidence;
-        Ok(executed)
+        finish_task(executed, workspace, control)
     }
 
     fn execute_phase(&self, execution: PhaseExecution<'_>) -> Result<HubGvisorResult> {
@@ -466,6 +466,58 @@ fn lower_hex(value: &str, length: usize) -> bool {
             .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
 }
 
+// The guest is already confirmed absent. Inspect a bounded owned tree without
+// following symlinks BEFORE deletion; permission/budget failures retain it all.
+fn cleanup_preflight(root: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let device = std::fs::symlink_metadata(root)?.dev();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut pending = vec![(root.to_path_buf(), 0)];
+    let mut entries = 0;
+    while let Some((directory, depth)) = pending.pop() {
+        ensure!(depth <= 32 && Instant::now() < deadline, "workspace cleanup inspection budget exceeded");
+        let metadata = std::fs::symlink_metadata(&directory)?;
+        ensure!(metadata.is_dir() && !metadata.file_type().is_symlink()
+            && metadata.dev() == device && metadata.permissions().mode() & 0o700 == 0o700,
+            "workspace cleanup refused inaccessible or changed directory");
+        for entry in std::fs::read_dir(&directory)? {
+            entries += 1;
+            ensure!(entries <= 4096 && Instant::now() < deadline, "workspace cleanup inspection budget exceeded");
+            let path = entry?.path();
+            let metadata = std::fs::symlink_metadata(&path)?;
+            ensure!(metadata.dev() == device, "workspace cleanup crossed a filesystem boundary");
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                pending.push((path, depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn finish_task(result: HubGvisorResult, workspace: tempfile::TempDir, control: tempfile::TempDir) -> Result<HubGvisorResult> {
+    if let Err(error) = cleanup_preflight(workspace.path()) {
+        return Err(quarantine_refusal(retain_completed_phases(error, &result.phase_evidence), workspace, control));
+    }
+    let path = workspace.path().to_path_buf();
+    if let Err(error) = workspace.close() {
+        let inputs = control.keep();
+        return Err(retain_completed_phases(anyhow!(
+            "workspace cleanup unconfirmed: {error}; remaining workspace retained for quarantine/reconciliation at {}; private phase inputs retained at {}; no automatic replay",
+            path.display(), inputs.display()), &result.phase_evidence));
+    }
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        observation => {
+            let inputs = control.keep();
+            return Err(retain_completed_phases(anyhow!(
+                "workspace cleanup absence unconfirmed: {observation:?}; private inputs retained at {}",
+                inputs.display()), &result.phase_evidence));
+        }
+    }
+    control.close().map_err(|error| retain_completed_phases(anyhow!("private input cleanup unconfirmed: {error}"), &result.phase_evidence))?;
+    Ok(result)
+}
+
 fn quarantine_refusal(error: anyhow::Error, workspace: tempfile::TempDir, control: tempfile::TempDir) -> anyhow::Error {
     let retained = workspace.keep();
     let inputs = control.keep();
@@ -590,6 +642,27 @@ mod tests {
             // budget; PAPERS does not silently widen the host task ceiling.
             assert!(request.get("guest_pids_limit").is_none());
         }
+    }
+
+    #[test]
+    fn inaccessible_guest_tree_refuses_success_and_retains_completed_facts() {
+        let (root, config) = phase_fixture(0, false);
+        let script = std::fs::read_to_string(&config.executable).unwrap().replace(
+            "printf called",
+            "sandbox=$(jq -r .workspace \"$1\"); mkdir \"$sandbox/sealed\"; printf residue > \"$sandbox/sealed/residue\"; chmod 000 \"$sandbox/sealed\"; printf called"
+        );
+        std::fs::write(&config.executable, script).unwrap();
+        let error = HubGvisorExecutor::new(config.clone()).unwrap()
+            .execute_rust_source_with_task("papers-test", "fn main() {}").unwrap_err();
+        assert!(error.to_string().contains("cleanup refused"));
+        assert_eq!(error.downcast_ref::<HubGvisorRefusal>().unwrap().completed_phases.len(), 2);
+        let retained: Vec<_> = std::fs::read_dir(&config.workspace_volume).unwrap()
+            .map(|entry| entry.unwrap().path()).collect();
+        assert_eq!(retained.len(), 1);
+        assert!(retained[0].join("candidate").is_file());
+        // Only this newly owned ABI fixture is made removable after assertion.
+        std::fs::set_permissions(retained[0].join("sealed"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(root.path().join("run-called").is_file());
     }
 
     #[test]
