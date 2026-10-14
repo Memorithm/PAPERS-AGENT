@@ -186,10 +186,103 @@ impl Researcher {
             return false;
         };
         name != "main"
-            && functions
-                .iter()
-                .any(|function| function.sig.ident == *name && !function.block.stmts.is_empty())
+            && functions.iter().any(|function| {
+                function.sig.ident == *name
+                    && Self::body_exercises_work(&function.block, &functions, 0)
+            })
             && call.args.iter().all(Self::literal_probe_input)
+    }
+
+    // Refuse logging-only helpers, including chains of such helpers. This is
+    // bounded syntactic activity detection, not proof of algorithm semantics.
+    fn body_exercises_work(block: &syn::Block, functions: &[&syn::ItemFn], depth: usize) -> bool {
+        if depth >= 16 {
+            return false;
+        }
+        for stmt in &block.stmts {
+            let active = match stmt {
+                syn::Stmt::Expr(expr, _) => Self::expr_exercises_work(expr, functions, depth),
+                syn::Stmt::Local(local) => local
+                    .init
+                    .as_ref()
+                    .is_some_and(|init| Self::expr_exercises_work(&init.expr, functions, depth)),
+                syn::Stmt::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth),
+                syn::Stmt::Item(_) => false,
+            };
+            if active {
+                return true;
+            }
+            if matches!(stmt, syn::Stmt::Expr(syn::Expr::Return(_), _)) {
+                return false;
+            }
+        }
+        false
+    }
+
+    fn macro_exercises_work(mac: &syn::Macro, functions: &[&syn::ItemFn], depth: usize) -> bool {
+        use syn::parse::Parser;
+        let Some(name) = mac
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+        else {
+            return false;
+        };
+        if name == "vec" {
+            return true;
+        }
+        if !matches!(
+            name.as_str(),
+            "print" | "println" | "eprint" | "eprintln" | "dbg" | "format"
+        ) {
+            return false;
+        }
+        let Ok(args) = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
+            .parse2(mac.tokens.clone())
+        else {
+            return false;
+        };
+        args.iter().any(|expr| {
+            !matches!(expr, syn::Expr::Lit(_) | syn::Expr::Path(_))
+                && Self::expr_exercises_work(expr, functions, depth)
+        })
+    }
+
+    fn expr_exercises_work(expr: &syn::Expr, functions: &[&syn::ItemFn], depth: usize) -> bool {
+        match expr {
+            syn::Expr::Call(call) => {
+                if let syn::Expr::Path(path) = call.func.as_ref() {
+                    if let Some(name) = path.path.get_ident() {
+                        if let Some(function) = functions
+                            .iter()
+                            .find(|function| function.sig.ident == *name)
+                        {
+                            return Self::body_exercises_work(
+                                &function.block,
+                                functions,
+                                depth + 1,
+                            );
+                        }
+                    }
+                }
+                false
+            }
+            syn::Expr::Macro(mac) => Self::macro_exercises_work(&mac.mac, functions, depth),
+            syn::Expr::Block(block) => {
+                Self::body_exercises_work(&block.block, functions, depth + 1)
+            }
+            syn::Expr::Return(ret) => ret
+                .expr
+                .as_ref()
+                .is_some_and(|expr| Self::expr_exercises_work(expr, functions, depth)),
+            syn::Expr::Paren(paren) => Self::expr_exercises_work(&paren.expr, functions, depth),
+            syn::Expr::Group(group) => Self::expr_exercises_work(&group.expr, functions, depth),
+            syn::Expr::Lit(_) | syn::Expr::Closure(_) | syn::Expr::Async(_) => false,
+            // Data access, arithmetic, method calls and control flow are activity;
+            // only runtime/independent oracles can qualify their actual meaning.
+            _ => true,
+        }
     }
 
     fn literal_probe_input(expr: &syn::Expr) -> bool {
@@ -545,6 +638,23 @@ mod tests {
                 "{main}"
             );
         }
+    }
+
+    #[test]
+    fn logging_only_helpers_are_not_candidate_invocations() {
+        let algorithm = "fn algorithm(x: i32) -> i32 { x + 1 }";
+        for driver in [
+            "fn decoy() { println!(\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"ok\"); } fn wrapper() { decoy(); } fn main() { wrapper(); }",
+            "fn decoy() { println!(\"ok\"); return; algorithm(1); } fn main() { decoy(); }",
+            "fn decoy() { decoy(); } fn main() { decoy(); }",
+        ] {
+            assert!(
+                !Researcher::is_valid(&format!("{algorithm} {driver}")),
+                "{driver}"
+            );
+        }
+        assert!(Researcher::is_valid(&format!("{algorithm} fn probe() {{ println!(\"{{}}\", algorithm(1)); }} fn main() {{ probe(); }}")));
     }
 
     #[test]
