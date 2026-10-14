@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Memorithm/scirust-hub
-          ref: f873bc04e996e13c33958702e48e8b1c411f9c11
+          ref: cf5233af12499605bd57d9d613b3cddc3bc39d08
           path: scirust-hub
           persist-credentials: false
       - name: Install Rust
@@ -66,11 +66,11 @@ jobs:
           set -euo pipefail
           qualification=papers_core/qualification/hub-gvisor/qualification.json
           receipt=papers_core/qualification/hub-gvisor/receipt.json
-          test "$(jq -r .source_commit "$qualification")" = f873bc04e996e13c33958702e48e8b1c411f9c11
-          test "$(jq -r .workflow_run_id "$qualification")" = 38512141573
+          test "$(jq -r .source_commit "$qualification")" = cf5233af12499605bd57d9d613b3cddc3bc39d08
+          test "$(jq -r .workflow_run_id "$qualification")" = 38517039600
           test "$(jq -r .receipt_sha256 "$qualification")" = "$(sha256sum "$receipt" | cut -d' ' -f1)"
           archive=papers_core/qualification/hub-gvisor/owner-controls.zip
-          printf '%s  %s\n' '03d2b15feb6993fc23ade8163a2b86c83faafc06440f5eb07cd48ee1fe9d18a1' "$archive" | sha256sum --check -
+          printf '%s  %s\n' '42436f60653968c1be42a198c625a9a22e690f1d569aecd2956699df3ae16eed' "$archive" | sha256sum --check -
           cmp <(unzip -p "$archive" qualification.json) "$qualification"
           cmp <(unzip -p "$archive" receipt.json) "$receipt"
           # Retained owner observations, not a substitute for the live consumer.
@@ -81,19 +81,24 @@ jobs:
               | jq -e --argjson budget "$budget" '.pids_limit == 512 and .guest_pids_limit == $budget and .timeout_ms == 15000'
           done
           unzip -p "$archive" gvisor-controls/pid-limited.receipt.json \
-            | jq -e '.task_id == "papers-01-38512141573-pid-limited" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,55,11") and contains("PID_UID=Uid:\t1001"))'
+            | jq -e '.task_id == "papers-01-38517039600-pid-limited" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,55,11") and contains("PID_UID=Uid:\t1001"))'
           unzip -p "$archive" gvisor-controls/pid-positive-control.receipt.json \
-            | jq -e '.task_id == "papers-01-38512141573-pid-positive-control" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,96,0") and contains("PID_UID=Uid:\t1001"))'
+            | jq -e '.task_id == "papers-01-38517039600-pid-positive-control" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,96,0") and contains("PID_UID=Uid:\t1001"))'
+          # Exact retained real owner recovery facts, not scientific authority.
+          unzip -p "$archive" gvisor-recovery/crash.json \
+            | jq -e '.before.task_id == "papers-01-38517039600-recovery-crash" and .before == .after and .before.state == "owned" and .daemon.running == true and .guest_entry_observed == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .before.owned_handle and .daemon.container_id == .before.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .before.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .before.request_sha256'
+          unzip -p "$archive" gvisor-recovery/lost-response.json \
+            | jq -e '.reserved.task_id == "papers-01-38517039600-recovery-lost-response" and .reserved.state == "reserved" and .reserved.owned_handle == null and .owned.state == "owned" and .reserved.attempt_id == .owned.attempt_id and .daemon.running == false and .never_started == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .owned.owned_handle and .daemon.container_id == .owned.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .owned.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .owned.request_sha256'
           imported_guard=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path papers_core/Cargo.toml \
             | jq -er '.packages[] | select(.name == "papers_core") | .dependencies[] | select(.name == "hub-executor") | .source')
-          test "$imported_guard" = 'git+https://github.com/Memorithm/scirust-hub.git?rev=f873bc04e996e13c33958702e48e8b1c411f9c11'
+          test "$imported_guard" = 'git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08'
           cargo metadata --locked --format-version 1 --manifest-path papers_core/Cargo.toml \
-            | jq -e --arg expected 'git+https://github.com/Memorithm/scirust-hub.git?rev=f873bc04e996e13c33958702e48e8b1c411f9c11#f873bc04e996e13c33958702e48e8b1c411f9c11' \
-              '[.packages[] | select(.name == "hub-executor" or .name == "hub-core" or .name == "hub-protocol")] | length == 3 and all(.[]; .source == $expected)'
+            | jq -e --arg expected 'git+https://github.com/Memorithm/scirust-hub.git?rev=cf5233af12499605bd57d9d613b3cddc3bc39d08#cf5233af12499605bd57d9d613b3cddc3bc39d08' \
+              '[.packages[] | select(.name == "hub-executor" or .name == "hub-core" or .name == "hub-protocol" or .name == "hub-store-sqlite")] | length == 4 and all(.[]; .source == $expected)'
       - name: Build exact Hub adapter
         working-directory: scirust-hub
         env:
-          SCIRUST_HUB_SOURCE_COMMIT: f873bc04e996e13c33958702e48e8b1c411f9c11
+          SCIRUST_HUB_SOURCE_COMMIT: cf5233af12499605bd57d9d613b3cddc3bc39d08
         run: cargo build --locked -p hub-executor --bin scirust-hub-gvisor
       - name: Execute PAPERS live consumer through runsc
         working-directory: papers_core

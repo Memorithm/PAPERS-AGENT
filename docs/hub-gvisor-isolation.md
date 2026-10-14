@@ -2,7 +2,7 @@
 
 PAPERS sends untrusted Rust candidates through the typed SciRust Hub gVisor adapter. The boundary uses Docker with the `runsc` runtime, a digest-pinned image, no network, a read-only root filesystem, dropped capabilities, an executor-owned workspace, and explicit CPU, memory, PID, wall-clock, source, and output bounds.
 
-The production consumer is pinned to SciRust Hub commit `f873bc04e996e13c33958702e48e8b1c411f9c11`. That revision passed Hub CI and the real gVisor qualification run [38512141573](https://github.com/Memorithm/scirust-hub/actions/runs/38512141573), including runtime-entry timeout/cleanup, output cap, positive read-only-root mount evidence, OS per-file ceiling, memory/swap refusal and independently qualified guest PID limits. PAPERS retains both the qualification manifest and the exact receipt whose SHA-256 is `3a158c23d8679d64640b01fd0c36d001505c90bdee9b60f436d54a98fba5a3b8`.
+The consumer implementation is pinned to SciRust Hub commit `cf5233af12499605bd57d9d613b3cddc3bc39d08`. That revision passed Hub CI and the real gVisor qualification run [38517039600](https://github.com/Memorithm/scirust-hub/actions/runs/38517039600), including runtime-entry timeout/cleanup, output cap, positive read-only-root mount evidence, OS per-file ceiling, memory/swap refusal and independently qualified guest PID limits. PAPERS retains both the qualification manifest and the exact receipt whose SHA-256 is `ffb28630643b58d001794117cec6a3b611db04ced7747c583f9571e48b1d6d93`.
 
 The client passes both retained artifacts to the exact Hub binary. Hub refuses to claim qualified isolation unless the compile-time source commit matches the manifest, the receipt hash matches, and the receipt proves a successful real runsc probe. PAPERS then validates the versioned execution receipt and its immutable evidence identifier before accepting the result.
 
@@ -19,10 +19,12 @@ Both phase budgets must be 1 ms..1 hour; outer supervision includes the existing
 15-second control margin. A failed adapter/admission/receipt phase retains its
 task directory for quarantine and reconciliation, including verified earlier
 compile facts when available. No ambiguous workspace is automatically deleted or
-replayed. Retention is not a durable task journal or proof the daemon cleaned an
-unknown container; the operator must reconcile that case before reuse/reclamation.
+replayed. Hub now journals controller attempts durably, separately from PAPERS' retained
+domain refusal. A journaled process cleanup is not task success, and an unknown
+container remains quarantined until an exact-ID absence observation permits
+reclamation. Retaining the directory alone never proves daemon cleanup.
 
-The live gate exercises successful compilation/execution via Engineer, actual compiler-error refusal with no execution phase, runtime timeout after the candidate flushes an entry marker, and actual output-limit refusal via Engineer with the refused workspace retained. Post-compilation admission or execution refusals retain the verified compilation facts through `HubGvisorRefusal` and Engineer, without manufacturing a receipt or qualification for the refused phase; the overall result remains unsuccessful, zero-fitness and nonempirical. ABI mock tests only check protocol/dispatch behavior. The exact owner's memory/swap, root mount and per-file controls are qualified separately above; aggregate workspace disk quotas and durable reconciliation after ambiguous Docker creation remain incomplete. The legacy local generated-source path remains fail-closed, and no untrusted source is compiled on the host.
+The live gate exercises successful compilation/execution via Engineer, actual compiler-error refusal with no execution phase, runtime timeout after the candidate flushes an entry marker, and actual output-limit refusal via Engineer with the refused workspace retained. Post-compilation admission or execution refusals retain the verified compilation facts through `HubGvisorRefusal` and Engineer, without manufacturing a receipt or qualification for the refused phase; the overall result remains unsuccessful, zero-fitness and nonempirical. ABI mock tests only check protocol/dispatch behavior. The exact owner's memory/swap, root mount and per-file controls are qualified separately above; aggregate workspace disk quotas remain incomplete. Owner crash/lost-response reconciliation is qualified below; no production deployment is inferred. The legacy local generated-source path remains fail-closed, and no untrusted source is compiled on the host.
 
 The operator can attach `HubGvisorConfig` explicitly using `PapersEngine::with_hub_gvisor`, `EvolutionLoop::with_hub_gvisor` or `Engineer::with_hub_gvisor`. The normal evolution evaluator then uses the qualified Hub consumer before the legacy WASM path. Missing configuration preserves the existing fail-closed local path; configured backend errors never fall back to host compilation or structural success. The owner evidence identity is retained in evolution node results. Successful isolated execution has `isolated_runtime_diagnostic` authority and score zero; only the pre-existing explicit task oracle may establish empirical fitness. The live gate exercises this Engineer path, not merely a direct adapter call.
 
@@ -30,4 +32,30 @@ Researcher requests a complete executable with `main()` invoking the candidate o
 
 Before recursive parsing, source is conservatively capped at 64 KiB and 512 ASCII punctuation bytes (including comments/strings); dense/deep grammar is refused and selects the existing fallback. The syntax preflight uses the already locked `syn` 2.0.119 parser. It requires the first statement of `main` to call a declared free function directly, with literal development inputs (or no arguments), optionally assigning its result. Empty mains, print-only statements, conditional/deferred entry calls and executable argument blocks are rejected rather than accepted from a substring. A globally budgeted 4,096-visit, 16-level body/call-chain check also refuses helpers which only log literals or stored values, including logging-only wrapper chains and unconditional early return. Budget exhaustion refuses admission, so an exponentially branching call graph cannot multiply the static walk without bound. Named formatting assignments inspect only the right-hand value. Logging arguments recursively unwrap references, groups, casts, unary wrappers, tuples and arrays; wrapping a stored value or literal is not work. Logging macro arguments can qualify only when they contain nontrivial expressions, such as an actual candidate call. The fallback driver calls an owner-generated development probe which invokes the preserved algorithm. This is a deliberately conservative syntactic activity protocol, not a semantic correctness, reachability or task-relevance proof; arbitrary generated code can still contain misleading computations. Only independent task oracles can qualify that meaning, and this diagnostic always has zero empirical fitness.
 
-The owner's complete integrated controls archive is retained as `papers_core/qualification/hub-gvisor/owner-controls.zip`, SHA-256 `03d2b15feb6993fc23ade8163a2b86c83faafc06440f5eb07cd48ee1fe9d18a1`. CI verifies its hash, exact manifest/receipt equality and paired guest PID requests/receipts. The owner held the host task ceiling at512 in both finite probes while changing guest NPROC64→128: UID1001 produced8 processes+55 threads then EAGAIN11 at64, and8+96 without denial at128. This evidence is specific to the pinned owner runtime, not hardware performance or a new scientific verdict. The unchanged PAPERS wire omits the optional stricter guest field, so the owner applies guest NPROC equal to the requested host budget. Consumer PID configuration is now1..4096, refused before materialization/dispatch otherwise. Root-owned task workspaces fail closed; operators must use nonroot executor-owned directories. Full dependency metadata, rebuilt CLI and owner receipts must all bind the same commit, and tests/Clippy/docs run with `--locked`. The actual consumer live gate still exercises successful execution and retained refusals separately; retained owner observations do not replace it.
+The owner's complete integrated controls archive is retained as `papers_core/qualification/hub-gvisor/owner-controls.zip`, SHA-256 `42436f60653968c1be42a198c625a9a22e690f1d569aecd2956699df3ae16eed`. CI verifies its hash, exact manifest/receipt equality and paired guest PID requests/receipts. The owner held the host task ceiling at512 in both finite probes while changing guest NPROC64→128: UID1001 produced8 processes+55 threads then EAGAIN11 at64, and8+96 without denial at128. This evidence is specific to the pinned owner runtime, not hardware performance or a new scientific verdict. The unchanged PAPERS wire omits the optional stricter guest field, so the owner applies guest NPROC equal to the requested host budget. Consumer PID configuration is now1..4096, refused before materialization/dispatch otherwise. Root-owned task workspaces fail closed; operators must use nonroot executor-owned directories. Full dependency metadata, rebuilt CLI and owner receipts must all bind the same commit, and tests/Clippy/docs run with `--locked`. The actual consumer live gate still exercises successful execution and retained refusals separately; retained owner observations do not replace it.
+
+## Durable owner attempts adopted without semantic promotion
+
+The owner reuses SQLite WAL/FULL commits and lifecycle_events, reserves a random
+nonce/request digest before creation, commits the immutable CID before start,
+and records cleaned only after exact-ID daemon absence. Its private controller
+state cannot be mounted to a guest. Nonblocking safe File locks fence active
+controllers; task IDs cannot be replayed even after cleanup. Uncleaned overlapping
+workspaces remain quarantined, and zero/multiple/failed ownership lookups refuse.
+
+The retained integrated archive contains two real recovery probes: controller
+SIGKILL after guest entry leaves an owned running container, and lost creation
+response leaves reserved state which restart binds to one nonce/digest-matched
+stopped container. Read-only reconciliation never starts, replays or deletes;
+CI explicitly cleans only its own exact ID before rechecking absence. These are
+owner contract observations, not a production adoption, quota or empirical claim.
+
+PAPERS pins four resolved Hub packages (core, executor, protocol, store-sqlite)
+to the same revision as its rebuilt CLI and retained manifest/receipt/archive.
+The live consumer separately inspects durable cleaned records for compilation,
+execution, compiler-error and timeout phases. Even when the owner cleaned the
+container, output admission refusal still retains the workspace and verified
+compilation facts, keeps score zero and grants no scientific authority. Operator
+metadata commands are `--inspect TASK_ID WORKSPACE_ROOT` and read-only
+`--reconcile TASK_ID WORKSPACE_ROOT`; they return metadata, not success receipts.
+Aggregate workspace OS quota and full PAPERS-01 acceptance remain incomplete.
