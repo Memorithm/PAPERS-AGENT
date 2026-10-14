@@ -1316,7 +1316,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 [[package]]
 name = "hub-core"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4#dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=f873bc04e996e13c33958702e48e8b1c411f9c11#f873bc04e996e13c33958702e48e8b1c411f9c11"
 dependencies = [
  "serde",
  "serde_json",
@@ -1329,7 +1329,7 @@ dependencies = [
 [[package]]
 name = "hub-executor"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4#dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=f873bc04e996e13c33958702e48e8b1c411f9c11#f873bc04e996e13c33958702e48e8b1c411f9c11"
 dependencies = [
  "axum",
  "hub-core",
@@ -1346,7 +1346,7 @@ dependencies = [
 [[package]]
 name = "hub-protocol"
 version = "0.2.0"
-source = "git+https://github.com/Memorithm/scirust-hub.git?rev=dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4#dbad915ccf0431b61b4f60ef16b1fc4e2cbc72b4"
+source = "git+https://github.com/Memorithm/scirust-hub.git?rev=f873bc04e996e13c33958702e48e8b1c411f9c11#f873bc04e996e13c33958702e48e8b1c411f9c11"
 dependencies = [
  "hub-core",
  "serde",
