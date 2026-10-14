@@ -243,10 +243,46 @@ impl Researcher {
         else {
             return false;
         };
-        args.iter().any(|expr| {
-            !matches!(expr, syn::Expr::Lit(_) | syn::Expr::Path(_))
-                && Self::expr_exercises_work(expr, functions, depth)
-        })
+        args.iter()
+            .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth))
+    }
+
+    // Borrowing/casting/grouping a stored value does not exercise a candidate.
+    fn logging_argument_exercises_work(
+        expr: &syn::Expr,
+        functions: &[&syn::ItemFn],
+        depth: usize,
+    ) -> bool {
+        if depth >= 16 {
+            return false;
+        }
+        match expr {
+            syn::Expr::Lit(_) | syn::Expr::Path(_) => false,
+            syn::Expr::Reference(reference) => {
+                Self::logging_argument_exercises_work(&reference.expr, functions, depth + 1)
+            }
+            syn::Expr::Paren(paren) => {
+                Self::logging_argument_exercises_work(&paren.expr, functions, depth + 1)
+            }
+            syn::Expr::Group(group) => {
+                Self::logging_argument_exercises_work(&group.expr, functions, depth + 1)
+            }
+            syn::Expr::Cast(cast) => {
+                Self::logging_argument_exercises_work(&cast.expr, functions, depth + 1)
+            }
+            syn::Expr::Unary(unary) => {
+                Self::logging_argument_exercises_work(&unary.expr, functions, depth + 1)
+            }
+            syn::Expr::Tuple(tuple) => tuple
+                .elems
+                .iter()
+                .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth + 1)),
+            syn::Expr::Array(array) => array
+                .elems
+                .iter()
+                .any(|expr| Self::logging_argument_exercises_work(expr, functions, depth + 1)),
+            _ => Self::expr_exercises_work(expr, functions, depth + 1),
+        }
     }
 
     fn expr_exercises_work(expr: &syn::Expr, functions: &[&syn::ItemFn], depth: usize) -> bool {
@@ -645,6 +681,9 @@ mod tests {
         let algorithm = "fn algorithm(x: i32) -> i32 { x + 1 }";
         for driver in [
             "fn decoy() { println!(\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{}\", &\"ok\"); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{}\", (&(1 as u64))); } fn main() { decoy(); }",
+            "fn decoy() { println!(\"{:?}\", (&[1, 2], -1)); } fn main() { decoy(); }",
             "fn decoy() { println!(\"ok\"); } fn wrapper() { decoy(); } fn main() { wrapper(); }",
             "fn decoy() { println!(\"ok\"); return; algorithm(1); } fn main() { decoy(); }",
             "fn decoy() { decoy(); } fn main() { decoy(); }",
