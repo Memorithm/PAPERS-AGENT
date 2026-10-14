@@ -12,6 +12,7 @@ on:
       - papers_core/tests/hub_gvisor_live.rs
       - papers_core/qualification/hub-gvisor/**
       - .github/workflows/hub-gvisor-qualification.yml
+      - .github/workflows/ci.yml
   push:
     branches: [master]
     paths:
@@ -23,6 +24,7 @@ on:
       - papers_core/tests/hub_gvisor_live.rs
       - papers_core/qualification/hub-gvisor/**
       - .github/workflows/hub-gvisor-qualification.yml
+      - .github/workflows/ci.yml
 
 permissions:
   contents: read

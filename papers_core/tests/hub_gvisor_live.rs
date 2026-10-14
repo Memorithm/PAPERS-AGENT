@@ -78,7 +78,10 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     );
     let compilation_attempt = inspect(&result.execution_phases[0].task_id);
     let execution_attempt = inspect(&result.execution_phases[1].task_id);
-    assert_ne!(compilation_attempt["attempt_id"], execution_attempt["attempt_id"]);
+    assert_ne!(
+        compilation_attempt["attempt_id"],
+        execution_attempt["attempt_id"]
+    );
     println!(
         "PAPERS_GVISOR_PHASES={}",
         serde_json::to_string(&result.execution_phases).unwrap()
@@ -172,17 +175,21 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     // Process cleanup is not overall task success: admission still refuses
     // truncated output and preserves the task workspace/completed compile facts.
     inspect(&refused.execution_phases[0].task_id);
-    let inputs: Vec<_> = std::fs::read_dir(&config.workspace_root).unwrap()
+    let inputs: Vec<_> = std::fs::read_dir(&config.workspace_root)
+        .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.join("execution-request.json").is_file())
         .collect();
     assert_eq!(inputs.len(), 1);
     assert!(inputs[0].join("compilation-request.json").is_file());
     assert!(!inputs[0].starts_with(&workspace_volume));
-    let execution_request: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(inputs[0].join("execution-request.json")).unwrap(),
-    ).unwrap();
-    assert_eq!(execution_request["workspace_quota"]["max_bytes"], 64 * 1024 * 1024);
+    let execution_request: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(inputs[0].join("execution-request.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        execution_request["workspace_quota"]["max_bytes"],
+        64 * 1024 * 1024
+    );
     assert_eq!(execution_request["workspace_quota"]["max_inodes"], 256);
     inspect(execution_request["task_id"].as_str().unwrap());
     println!(
@@ -195,7 +202,8 @@ fn executes_untrusted_rust_through_qualified_hub_gvisor() {
     // Finite generated diagnostics execute ONLY in the real owner sandbox.
     // Each file is below16 MiB RLIMIT; total128 MiB exceeds64 MiB volume.
     for mode in ["bytes", "inodes"] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
 fn main() {{
     use std::fs::{{File, remove_file}};
     use std::io::Write;
@@ -222,32 +230,54 @@ fn main() {{
     for index in 0..bound {{ let _ = remove_file(format!("quota-{{index}}")); }}
     println!("PAPERS_AGGREGATE_{{mode}}_ENOSPC={{created}}");
 }}
-"#);
-        let probe = Engineer::new(120).with_hub_gvisor(config.clone()).unwrap()
+"#
+        );
+        let probe = Engineer::new(120)
+            .with_hub_gvisor(config.clone())
+            .unwrap()
             .execute(&source, None::<fn(&str) -> EngineerOutput>);
         assert!(probe.success, "{:?}", probe.error);
         assert_eq!(probe.score, 0.0);
-        assert_eq!(probe.authority, EvaluationAuthority::IsolatedRuntimeDiagnostic);
+        assert_eq!(
+            probe.authority,
+            EvaluationAuthority::IsolatedRuntimeDiagnostic
+        );
         assert!(!probe.is_empirically_validated());
         assert_eq!(probe.execution_phases.len(), 2);
-        assert_eq!(probe.execution_phases[0].artifact_sha256, probe.execution_phases[1].artifact_sha256);
-        for phase in &probe.execution_phases { inspect(&phase.task_id); }
-        println!("PAPERS_GVISOR_QUOTA_{mode}={}", serde_json::to_string(&probe.execution_phases).unwrap());
+        assert_eq!(
+            probe.execution_phases[0].artifact_sha256,
+            probe.execution_phases[1].artifact_sha256
+        );
+        for phase in &probe.execution_phases {
+            inspect(&phase.task_id);
+        }
+        println!(
+            "PAPERS_GVISOR_QUOTA_{mode}={}",
+            serde_json::to_string(&probe.execution_phases).unwrap()
+        );
     }
     println!("PAPERS_REAL_AGGREGATE_BYTES_INODES_PRIVATE_PHASE_INPUTS_OK");
-    let blocked = Engineer::new(120).with_hub_gvisor(config.clone()).unwrap().execute(
-        r#"fn main() {
+    let blocked = Engineer::new(120)
+        .with_hub_gvisor(config.clone())
+        .unwrap()
+        .execute(
+            r#"fn main() {
             use std::os::unix::fs::PermissionsExt;
             std::fs::create_dir("sealed").unwrap();
             std::fs::write("sealed/residue", "owned quota probe").unwrap();
             std::fs::set_permissions("sealed", std::fs::Permissions::from_mode(0o000)).unwrap();
         }"#,
-        None::<fn(&str) -> EngineerOutput>,
-    );
+            None::<fn(&str) -> EngineerOutput>,
+        );
     assert!(!blocked.success && blocked.score == 0.0 && !blocked.is_empirically_validated());
     assert!(blocked.error.as_ref().unwrap().contains("cleanup refused"));
     assert_eq!(blocked.execution_phases.len(), 2);
-    for phase in &blocked.execution_phases { inspect(&phase.task_id); }
-    println!("PAPERS_GVISOR_CLEANUP_REFUSAL={}", serde_json::to_string(&blocked.execution_phases).unwrap());
+    for phase in &blocked.execution_phases {
+        inspect(&phase.task_id);
+    }
+    println!(
+        "PAPERS_GVISOR_CLEANUP_REFUSAL={}",
+        serde_json::to_string(&blocked.execution_phases).unwrap()
+    );
     println!("PAPERS_REAL_INACCESSIBLE_TREE_REFUSES_SUCCESS_OK");
 }

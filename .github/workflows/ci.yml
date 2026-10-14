@@ -23,6 +23,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
@@ -50,15 +51,18 @@ jobs:
       - name: Format changed Rust files
         working-directory: .
         shell: bash
+        env:
+          FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT origin/master...HEAD -- 'papers_core/**/*.rs')
+          git cat-file -e "$FORMAT_BASE_SHA^{commit}"
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$FORMAT_BASE_SHA" HEAD -- 'papers_core/**/*.rs')
           if [ "${#files[@]}" -eq 0 ]; then
             exit 0
           fi
           for file in "${files[@]}"; do
             echo "Checking $file"
-            rustfmt --edition 2021 --check < "$file"
+            rustfmt --edition 2021 --check "$file"
           done
 
       - name: Test

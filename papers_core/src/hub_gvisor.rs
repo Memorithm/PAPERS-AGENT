@@ -255,10 +255,15 @@ impl HubGvisorExecutor {
             .workspace_root
             .canonicalize()
             .context("canonicalize executor-owned workspace root")?;
-        let volume = self.config.workspace_volume.canonicalize()
+        let volume = self
+            .config
+            .workspace_volume
+            .canonicalize()
             .context("canonicalize persistent task volume")?;
-        ensure!(volume.parent() == Some(workspace_root.as_path()),
-            "persistent task volume must be an immediate child of controller root");
+        ensure!(
+            volume.parent() == Some(workspace_root.as_path()),
+            "persistent task volume must be an immediate child of controller root"
+        );
         let control = tempfile::Builder::new()
             .prefix("papers-control-")
             .tempdir_in(&workspace_root)
@@ -475,17 +480,30 @@ fn cleanup_preflight(root: &Path) -> Result<()> {
     let mut pending = vec![(root.to_path_buf(), 0)];
     let mut entries = 0;
     while let Some((directory, depth)) = pending.pop() {
-        ensure!(depth <= 32 && Instant::now() < deadline, "workspace cleanup inspection budget exceeded");
+        ensure!(
+            depth <= 32 && Instant::now() < deadline,
+            "workspace cleanup inspection budget exceeded"
+        );
         let metadata = std::fs::symlink_metadata(&directory)?;
-        ensure!(metadata.is_dir() && !metadata.file_type().is_symlink()
-            && metadata.dev() == device && metadata.permissions().mode() & 0o700 == 0o700,
-            "workspace cleanup refused inaccessible or changed directory");
+        ensure!(
+            metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && metadata.dev() == device
+                && metadata.permissions().mode() & 0o700 == 0o700,
+            "workspace cleanup refused inaccessible or changed directory"
+        );
         for entry in std::fs::read_dir(&directory)? {
             entries += 1;
-            ensure!(entries <= 4096 && Instant::now() < deadline, "workspace cleanup inspection budget exceeded");
+            ensure!(
+                entries <= 4096 && Instant::now() < deadline,
+                "workspace cleanup inspection budget exceeded"
+            );
             let path = entry?.path();
             let metadata = std::fs::symlink_metadata(&path)?;
-            ensure!(metadata.dev() == device, "workspace cleanup crossed a filesystem boundary");
+            ensure!(
+                metadata.dev() == device,
+                "workspace cleanup crossed a filesystem boundary"
+            );
             if metadata.is_dir() && !metadata.file_type().is_symlink() {
                 pending.push((path, depth + 1));
             }
@@ -494,9 +512,17 @@ fn cleanup_preflight(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn finish_task(result: HubGvisorResult, workspace: tempfile::TempDir, control: tempfile::TempDir) -> Result<HubGvisorResult> {
+fn finish_task(
+    result: HubGvisorResult,
+    workspace: tempfile::TempDir,
+    control: tempfile::TempDir,
+) -> Result<HubGvisorResult> {
     if let Err(error) = cleanup_preflight(workspace.path()) {
-        return Err(quarantine_refusal(retain_completed_phases(error, &result.phase_evidence), workspace, control));
+        return Err(quarantine_refusal(
+            retain_completed_phases(error, &result.phase_evidence),
+            workspace,
+            control,
+        ));
     }
     let path = workspace.path().to_path_buf();
     if let Err(error) = workspace.close() {
@@ -514,11 +540,20 @@ fn finish_task(result: HubGvisorResult, workspace: tempfile::TempDir, control: t
                 inputs.display()), &result.phase_evidence));
         }
     }
-    control.close().map_err(|error| retain_completed_phases(anyhow!("private input cleanup unconfirmed: {error}"), &result.phase_evidence))?;
+    control.close().map_err(|error| {
+        retain_completed_phases(
+            anyhow!("private input cleanup unconfirmed: {error}"),
+            &result.phase_evidence,
+        )
+    })?;
     Ok(result)
 }
 
-fn quarantine_refusal(error: anyhow::Error, workspace: tempfile::TempDir, control: tempfile::TempDir) -> anyhow::Error {
+fn quarantine_refusal(
+    error: anyhow::Error,
+    workspace: tempfile::TempDir,
+    control: tempfile::TempDir,
+) -> anyhow::Error {
     let retained = workspace.keep();
     let inputs = control.keep();
     let reason = format!("{error:#}");
@@ -577,7 +612,10 @@ mod tests {
             executable,
             workspace_root,
             workspace_volume,
-            workspace_quota: GvisorWorkspaceQuotaV1 { max_bytes: 64 * 1024 * 1024, max_inodes: 256 },
+            workspace_quota: GvisorWorkspaceQuotaV1 {
+                max_bytes: 64 * 1024 * 1024,
+                max_inodes: 256,
+            },
             qualification_manifest: manifest,
             qualification_receipt: root.path().join("receipt.json"),
             image: format!("rust@sha256:{}", "c".repeat(64)),
@@ -652,16 +690,31 @@ mod tests {
             "sandbox=$(jq -r .workspace \"$1\"); mkdir \"$sandbox/sealed\"; printf residue > \"$sandbox/sealed/residue\"; chmod 000 \"$sandbox/sealed\"; printf called"
         );
         std::fs::write(&config.executable, script).unwrap();
-        let error = HubGvisorExecutor::new(config.clone()).unwrap()
-            .execute_rust_source_with_task("papers-test", "fn main() {}").unwrap_err();
+        let error = HubGvisorExecutor::new(config.clone())
+            .unwrap()
+            .execute_rust_source_with_task("papers-test", "fn main() {}")
+            .unwrap_err();
         assert!(error.to_string().contains("cleanup refused"));
-        assert_eq!(error.downcast_ref::<HubGvisorRefusal>().unwrap().completed_phases.len(), 2);
-        let retained: Vec<_> = std::fs::read_dir(&config.workspace_volume).unwrap()
-            .map(|entry| entry.unwrap().path()).collect();
+        assert_eq!(
+            error
+                .downcast_ref::<HubGvisorRefusal>()
+                .unwrap()
+                .completed_phases
+                .len(),
+            2
+        );
+        let retained: Vec<_> = std::fs::read_dir(&config.workspace_volume)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
         assert_eq!(retained.len(), 1);
         assert!(retained[0].join("candidate").is_file());
         // Only this newly owned ABI fixture is made removable after assertion.
-        std::fs::set_permissions(retained[0].join("sealed"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(
+            retained[0].join("sealed"),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
         assert!(root.path().join("run-called").is_file());
     }
 
@@ -678,7 +731,10 @@ mod tests {
             bad.workspace_quota.max_inodes = invalid;
             assert!(HubGvisorExecutor::new(bad).is_err());
         }
-        assert_eq!(std::fs::read_dir(&config.workspace_volume).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(&config.workspace_volume).unwrap().count(),
+            0
+        );
         assert!(!root.path().join("run-called").exists());
     }
 
@@ -695,7 +751,10 @@ mod tests {
             accepted.pids_limit = valid;
             assert!(HubGvisorExecutor::new(accepted).is_ok());
         }
-        assert_eq!(std::fs::read_dir(&config.workspace_volume).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(&config.workspace_volume).unwrap().count(),
+            0
+        );
         assert!(!root.path().join("run-called").exists());
     }
 
@@ -788,8 +847,13 @@ mod tests {
         assert_eq!(retained.len(), 1);
         assert!(retained[0].join("main.rs").is_file());
         assert!(!retained[0].join("compilation-request.json").exists());
-        assert!(std::fs::read_dir(root.path().join("workspaces")).unwrap()
-            .any(|entry| entry.unwrap().path().join("compilation-request.json").is_file()));
+        assert!(std::fs::read_dir(root.path().join("workspaces"))
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .path()
+                .join("compilation-request.json")
+                .is_file()));
     }
 
     #[test]
@@ -812,7 +876,10 @@ mod tests {
             executable: root.path().join("hub"),
             workspace_root: root.path().to_path_buf(),
             workspace_volume: root.path().join("volume"),
-            workspace_quota: GvisorWorkspaceQuotaV1 { max_bytes: 64 * 1024 * 1024, max_inodes: 256 },
+            workspace_quota: GvisorWorkspaceQuotaV1 {
+                max_bytes: 64 * 1024 * 1024,
+                max_inodes: 256,
+            },
             qualification_manifest: root.path().join("qualification.json"),
             qualification_receipt: root.path().join("receipt.json"),
             image: "rust:latest".to_owned(),
