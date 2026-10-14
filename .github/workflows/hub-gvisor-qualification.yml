@@ -85,9 +85,9 @@ jobs:
           unzip -p "$archive" gvisor-controls/pid-positive-control.receipt.json \
             | jq -e '.task_id == "papers-01-38517039600-pid-positive-control" and .exit_code == 0 and .timed_out == false and .stdout_truncated == false and .stderr_truncated == false and (.stdout | contains("PID_COUNTS=8,96,0") and contains("PID_UID=Uid:\t1001"))'
           # Exact retained real owner recovery facts, not scientific authority.
-          unzip -p "$archive" gvisor-recovery/crash.json \\
+          unzip -p "$archive" gvisor-recovery/crash.json \
             | jq -e '.before.task_id == "papers-01-38517039600-recovery-crash" and .before == .after and .before.state == "owned" and .daemon.running == true and .guest_entry_observed == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .before.owned_handle and .daemon.container_id == .before.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .before.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .before.request_sha256'
-          unzip -p "$archive" gvisor-recovery/lost-response.json \\
+          unzip -p "$archive" gvisor-recovery/lost-response.json \
             | jq -e '.reserved.task_id == "papers-01-38517039600-recovery-lost-response" and .reserved.state == "reserved" and .reserved.owned_handle == null and .owned.state == "owned" and .reserved.attempt_id == .owned.attempt_id and .daemon.running == false and .never_started == true and .cleaned.state == "cleaned" and .cleaned.owned_handle == .owned.owned_handle and .daemon.container_id == .owned.owned_handle and .daemon.labels["org.memorithm.hub.attempt"] == .owned.attempt_id and .daemon.labels["org.memorithm.hub.request"] == .owned.request_sha256'
           imported_guard=$(cargo metadata --locked --no-deps --format-version 1 --manifest-path papers_core/Cargo.toml \
             | jq -er '.packages[] | select(.name == "papers_core") | .dependencies[] | select(.name == "hub-executor") | .source')
