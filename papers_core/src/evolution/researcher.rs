@@ -776,15 +776,47 @@ mod tests {
     fn branching_no_work_call_graph_is_budgeted() {
         let mut program = String::from("fn leaf() { println!(\"ok\"); }");
         let mut child = String::from("leaf");
-        for level in 0..12 {
+        for level in 0..8 {
             let name = format!("branch_{level}");
             program.push_str(&format!(
                 "fn {name}() {{ {} }}",
-                format!("{child}();").repeat(12)
+                format!("{child}();").repeat(8)
             ));
             child = name;
         }
         program.push_str(&format!("fn main() {{ {child}(); }}"));
+        assert!(
+            program
+                .bytes()
+                .filter(|byte| byte.is_ascii_punctuation())
+                .count()
+                <= 512
+        );
+        let file = syn::parse_file(&program).unwrap();
+        let functions: Vec<_> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Fn(function) => Some(function),
+                _ => None,
+            })
+            .collect();
+        let target = functions
+            .iter()
+            .find(|function| function.sig.ident == child.as_str())
+            .unwrap();
+        let budget = std::cell::Cell::new(4096);
+        assert!(!Researcher::body_exercises_work(
+            &target.block,
+            &functions,
+            0,
+            &budget
+        ));
+        assert_eq!(
+            budget.get(),
+            0,
+            "global traversal budget actually exhausted"
+        );
         assert!(!Researcher::is_valid(&program));
     }
 
