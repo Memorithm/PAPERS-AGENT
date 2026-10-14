@@ -74,3 +74,23 @@ audit_shared_guard_integrated_2026_10_14:
     - aggregate_workspace_quota_and_guest_PID_qualification
     - durable_ambiguous_creation_quarantine_reconciliation
     - no_global_finding_closure_or_empirical_promotion
+
+
+audit_guest_PID_owner_adoption_2026_10_14:
+  finding: PAPERS-01
+  status: candidate_CI_review_pending
+  pull_request: 15
+  candidate: 78151131e8c495eec263b0a3676ed387a1a8b5c8
+  target_branch: master
+  owner_commit: f873bc04e996e13c33958702e48e8b1c411f9c11
+  owner_integrated_qualification_run: 38512141573
+  owner_controls_archive_sha256: 03d2b15feb6993fc23ade8163a2b86c83faafc06440f5eb07cd48ee1fe9d18a1
+  scope:
+    - exact_locked3package_graph_CLI_manifest_receipt_and_controls_archive
+    - guest_PID_wire_default_and_consumer1_to4096_preflight
+    - exact_retained_independent_host512_guest64_then128_evidence
+    - real_consumer_gate_still_required_separately
+  remaining:
+    - candidate_three_gates_and_review_then_integrated_qualification
+    - aggregate_workspace_quota_and_durable_ambiguous_creation_reconciliation
+    - no_scientific_fitness_or_global_finding_closure
