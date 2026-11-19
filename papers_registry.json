@@ -1,0 +1,96 @@
+[
+  {
+    "id": "isbn:9782759822874",
+    "title": "Mécanique quantique — Tome I (nouvelle édition)",
+    "authors": [
+      "Claude Cohen-Tannoudji",
+      "Bernard Diu",
+      "Franck Laloë"
+    ],
+    "year": 2018,
+    "domain": "quantum mechanics",
+    "tags": [
+      "mécanique quantique",
+      "spin",
+      "formalismes",
+      "opérateurs",
+      "oscillateur harmonique"
+    ],
+    "abstract_text": null,
+    "key_insight": null,
+    "url": "https://pierre.ag.gerard.web.ulb.be/textbooks/books/Mecanique_Quantique_1.pdf",
+    "source": "external-bibliographic-reference-only",
+    "relevance_score": null,
+    "github_url": null
+  },
+  {
+    "id": "isbn:9782759822867",
+    "title": "Mécanique quantique — Tome II (nouvelle édition)",
+    "authors": [
+      "Claude Cohen-Tannoudji",
+      "Bernard Diu",
+      "Franck Laloë"
+    ],
+    "year": 2018,
+    "domain": "quantum mechanics",
+    "tags": [
+      "mécanique quantique",
+      "perturbations",
+      "moment cinétique",
+      "particules identiques"
+    ],
+    "abstract_text": null,
+    "key_insight": null,
+    "url": "https://pierre.ag.gerard.web.ulb.be/textbooks/books/Mecanique_Quantique_2.pdf",
+    "source": "external-bibliographic-reference-only",
+    "relevance_score": null,
+    "github_url": null
+  },
+  {
+    "id": "isbn:9782759823352",
+    "title": "Mécanique quantique — Tome III : Fermions, bosons, photons, corrélations et intrication",
+    "authors": [
+      "Claude Cohen-Tannoudji",
+      "Bernard Diu",
+      "Franck Laloë"
+    ],
+    "year": 2019,
+    "domain": "quantum mechanics",
+    "tags": [
+      "mécanique quantique",
+      "seconde quantification",
+      "fermions",
+      "bosons",
+      "photons",
+      "intrication"
+    ],
+    "abstract_text": null,
+    "key_insight": null,
+    "url": "https://laboutique.edpsciences.fr/produit/1061/9782759823369",
+    "source": "external-bibliographic-reference-only",
+    "relevance_score": null,
+    "github_url": null
+  },
+  {
+    "id": "ens:castin:seconde-quantification-resolvante",
+    "title": "Mécanique quantique : seconde quantification et résolvante",
+    "authors": [
+      "Yvan Castin"
+    ],
+    "year": null,
+    "domain": "quantum mechanics",
+    "tags": [
+      "mécanique quantique",
+      "seconde quantification",
+      "résolvante",
+      "particules identiques",
+      "opérateurs création-annihilation"
+    ],
+    "abstract_text": null,
+    "key_insight": null,
+    "url": "https://www.phys.ens.fr/~castin/cours.pdf",
+    "source": "external-bibliographic-reference-only",
+    "relevance_score": null,
+    "github_url": null
+  }
+]
